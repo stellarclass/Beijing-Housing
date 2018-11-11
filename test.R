@@ -4,6 +4,7 @@ library(stringr)
 library(ggplot2)
 library(ggmap)
 library(Hmisc)
+library(mice)
 
 # library(tidyr)
 # library(cluster)
@@ -38,30 +39,56 @@ library(Hmisc)
 data_dir = "data"
 
 ### Loading data
-data=read.csv(paste(data_dir,"new.csv",sep="/"), header = TRUE, sep = ",")
+data=read.csv(paste(data_dir,"original_data.csv",sep="/"), header = TRUE, sep = ",",na.strings = c("nan","#NAME?"))
 
 bjmap <- get_map(location =c(left=115.9133, bottom=39.6966, right=116.8252, top=40.1831))
 beijingMap <- ggmap(bjmap)
 
 ### Data Preprocessing
 
-#format columns because it has chinese characters encoded that we don't need
-data$drawingRoom <- as.numeric(gsub("\\D", "", data$drawingRoom))
-data$constructionTime <- as.numeric(gsub("\\D", "", data$constructionTime))
-data$bathRoom <- as.numeric(gsub("\\D", "", data$bathRoom))
-data$livingRoom <- as.numeric(gsub("\\D", "", data$livingRoom))
+#factorize everything
+for(col in c("buildingType","kitchen","district","bathRoom", "livingRoom", "drawingRoom", "constructionTime", "renovationCondition", "elevator", "fiveYearsProperty", "subway", "district")) {
+  data[,col] = as.factor(data[,col])
+}
 
-#construction time has 0 and 1 listed for year of construction - incorrect so change them to NA
-data$constructionTime[data$constructionTime < 2] <- NA
+#first, let's take a look at NA
 
-#bathroom has what appears to be years - change to NA
-data$bathRoom[data$bathRoom > 1000] <- NA
+colSums(is.na(data))
 
-#building type has decimal places when it should not - change to NA
-data$buildingType[data$buildingType < 1] <- NA
+#looks like there's a consistent number of NA values for some columns so let's take a closer look
+NAdata <- which(is.na(data$subway))
+data[NAdata, ]
 
-#you can't have like 20 drawing rooms in one house - change to NA
-data$drawingRoom[data$drawingRoom > 10] <- NA
+#looks like some values were swapped! let's fix this up
+#thanks to having the URLs, we can see how things were mixed up
+#looks like there is no room data input for the NA rows 
+
+data$subway[NAdata] <- data$buildingStructure[NAdata]
+
+#convert to numbers - reinforced = 6, hybrid = 1
+
+BS6 <- which(data$floor == "Reinforced Concrete Structure")
+BS1 <- which(data$floor == "Hybrid Structure")
+data$buildingStructure[BS6] <- 6
+data$buildingStructure[BS1] <- 1
+
+data$floor[NAdata] <- data$drawingRoom[NAdata]
+data$drawingRoom[NAdata] <- NA
+
+data$elevator[NAdata] <- data$constructionTime[NAdata]
+data$constructionTime[NAdata] <- data$bathRoom[NAdata]
+data$bathRoom[NAdata] <- NA
+
+data$fiveYearsProperty[NAdata] <- data$renovationCondition[NAdata]
+data$renovationCondition[NAdata] <- data$ladderRatio[NAdata]
+data$ladderRatio[NAdata] <- data$buildingType[NAdata]
+data$buildingType[NAdata] <- data$kitchen[NAdata]
+data$kitchen[NAdata] <- NA
+
+data$livingRoom[NAdata] <- NA
+
+#reno condition can't be 0 - change to NA 
+data$renovationCondition[data$renovationCondition == 0] <- NA
 
 #split floor to have height info 
 temp <- as.data.frame(str_split_fixed(data$floor, " ", 2))
@@ -72,11 +99,6 @@ data <- cbind(data, temp)
 data$elevator = factor(mapvalues(data$elevator, from = c(0, 1), to = c("no", "yes")))
 data$fiveYearsProperty = factor(mapvalues(data$fiveYearsProperty, from = c(0, 1), to = c("no", "yes")))
 data$subway = factor(mapvalues(data$subway, from = c(0, 1), to = c("no", "yes")))
-
-#factorize
-for(col in c("buildingType","kitchen","district","bathRoom", "livingRoom", "drawingRoom", "constructionTime")) {
-  data[,col] = as.factor(data[,col])
-}
 
 #ladderRatio probably has outliers
 
@@ -93,6 +115,18 @@ data <- data[, !colnames(data) %in% c("url","id", "floor")]
 
 colSums(is.na(data))
 
-#DOM, ladder, community, living, drawing, bath use mean/median?
+#ladder, rooms use mean/median?
+data$ladderRatio=impute(data$ladderRatio, mean)
+data$livingRoom=impute(data$livingRoom, mean)
+data$drawingRoom=impute(data$drawingRoom, mean)
+data$kitchen=impute(data$kitchen, mean)
+data$bathRoom=impute(data$bathRoom, mean)
 
-#construction, buildingtype, elevator, subway, fiveyears use knn imputation?
+#buildingtype, community, DOM use mice imputation
+set.seed(12345)
+
+# Perform mice imputation, excluding certain less-than-useful variables:
+mice_mod <- mice(data[, !names(data) %in% 'totalPrice'], method='rf') 
+
+# Save the complete output 
+mice_output <- complete(mice_mod)
