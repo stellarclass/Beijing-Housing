@@ -1,8 +1,10 @@
- library(plyr)
- library(dplyr)
- library(stringr)
- library(ggplot2)
- library(ggmap)
+library(plyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(ggmap)
+library(Hmisc)
+
 # library(tidyr)
 # library(cluster)
 # library(lubridate)
@@ -17,12 +19,11 @@
 # library(NbClust)
 # library(reshape2)
 # library(scales)
-
 # library(caret)
 # library(ROCR)
 # library(pROC)
 # library(rlist)
-# library(Hmisc)
+
 # library(corrplot)
 # library(ggcorrplot)
 # library(DMwR)
@@ -45,35 +46,22 @@ beijingMap <- ggmap(bjmap)
 ### Data Preprocessing
 
 #format columns because it has chinese characters encoded that we don't need
-data$drawingRoom <- as.factor(as.numeric(gsub("\\D", "", data$drawingRoom)))
-data$constructionTime <- as.factor(as.numeric(gsub("\\D", "", data$constructionTime)))
-data$bathRoom <- as.factor(as.numeric(gsub("\\D", "", data$bathRoom)))
-data$livingRoom <- as.factor(as.numeric(gsub("\\D", "", data$livingRoom)))
+data$drawingRoom <- as.numeric(gsub("\\D", "", data$drawingRoom))
+data$constructionTime <- as.numeric(gsub("\\D", "", data$constructionTime))
+data$bathRoom <- as.numeric(gsub("\\D", "", data$bathRoom))
+data$livingRoom <- as.numeric(gsub("\\D", "", data$livingRoom))
 
 #construction time has 0 and 1 listed for year of construction - incorrect so change them to NA
-levels(data$constructionTime)[levels(data$constructionTime)=="0"] <- NA
-levels(data$constructionTime)[levels(data$constructionTime)=="1"] <- NA
+data$constructionTime[data$constructionTime < 2] <- NA
 
 #bathroom has what appears to be years - change to NA
-levels(data$bathRoom)[levels(data$bathRoom)=="1990"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="1994"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="1996"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2000"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2003"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2004"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2005"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2006"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2011"] <- NA
+data$bathRoom[data$bathRoom > 1000] <- NA
 
 #building type has decimal places when it should not - change to NA
-levels(data$buildingType)[levels(data$buildingType)=="0.048"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.125"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.25"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.333"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.375"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.429"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.5"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.667"] <- NA
+data$buildingType[data$buildingType < 1] <- NA
+
+#you can't have like 20 drawing rooms in one house - change to NA
+data$drawingRoom[data$drawingRoom > 10] <- NA
 
 #split floor to have height info 
 temp <- as.data.frame(str_split_fixed(data$floor, " ", 2))
@@ -85,15 +73,26 @@ data$elevator = factor(mapvalues(data$elevator, from = c(0, 1), to = c("no", "ye
 data$fiveYearsProperty = factor(mapvalues(data$fiveYearsProperty, from = c(0, 1), to = c("no", "yes")))
 data$subway = factor(mapvalues(data$subway, from = c(0, 1), to = c("no", "yes")))
 
-#factor building type, kitchen
-data$buildingType <- as.factor(data$buildingType)
-data$kitchen <- as.factor(data$kitchen)
-data$district <- as.factor(data$district)
+#factorize
+for(col in c("buildingType","kitchen","district","bathRoom", "livingRoom", "drawingRoom", "constructionTime")) {
+  data[,col] = as.factor(data[,col])
+}
+
+#ladderRatio probably has outliers
+
+boxplot(data$ladderRatio, las = 1, ylim=c(0,2))
+
+#we can assume everything above a 1:1 ratio is probably an outlier or incorrect
+
+data$ladderRatio[data$ladderRatio > 1] <- NA
 
 #remove unused columnns
-data <- data[, !colnames(data) %in% c("url","id", "Cid", "floor")]
+data <- data[, !colnames(data) %in% c("url","id", "floor")]
 
-#ladderRAtio probably has outliers?
+#what to do with NAs?
 
-summary(data)
-summary(data$buildingType)
+colSums(is.na(data))
+
+#DOM, ladder, community, living, drawing, bath use mean/median?
+
+#construction, buildingtype, elevator, subway, fiveyears use knn imputation?
