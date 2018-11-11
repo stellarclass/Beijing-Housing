@@ -1,0 +1,73 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r warning=FALSE,message=FALSE}
+library(plyr)
+library(dplyr)
+library(Hmisc)
+library(ggpubr)
+library(DMwR)
+library(caret)
+library(pROC)
+library(ggplot2)
+library(ggpubr)
+library(stringr)
+library(lubridate)
+set.seed(42)
+model_dir = "models"
+data_dir = "data"
+```
+
+
+ - **url**:  the url which fetches the data
+ - **id**:  the id of transaction
+ - **Lng**:  and **Lat**  coordinates, using the **BD09** protocol. 
+ - **Cid**:  community id
+ - **tradeTime**:  the time of transaction
+ - **DOM**:  active days on market.Know more in https://en.wikipedia.org/wiki/Days_on_market
+ - **followers**:  the number of people follow the transaction.
+ - **totalPrice**:  the total price in multiple of 10,000
+ - **price**:  the average price by square
+ - **square**:  the square of house
+ - **livingRoom**:   the number of living room
+ - **drawingRoom**:  the number of drawing room
+ - **kitchen**:  the number of kitchen
+ - **bathroom** the number of bathroom
+ - **floor**:  the height of the house. I will turn the Chinese characters to English in the next version.
+ - **buildingType**:  including tower( 1 ) , bungalow( 2 )，combination of plate and tower( 3 ), plate( 4 ).
+ - **constructionTime**:  the time of construction
+ - **renovationCondition**: including other( 1 ), rough( 2 ),Simplicity( 3 ), hardcover( 4 )
+ - **buildingStructure**: including unknow( 1 ), mixed( 2 ), brick and wood( 3 ), brick and concrete( 4 ),steel( 5 ) and steel-concrete composite ( 6 ).
+ - **ladderRatio**:  the proportion between number of residents on the same floor and number of elevator of ladder. It describes how many ladders a resident have on average.
+ - **elevator** have ( 1 ) or not have elevator( 0 )
+ - **fiveYearsProperty**:  if the owner have the property for less than 5 years, 
+
+```{r}
+### Loading data
+data=read.csv(paste(data_dir,"original_data.csv",sep="/"), header = TRUE, sep = ",",na.strings = c("nan","#NAME?"), fileEncoding="gbk")
+### Replace Chinese charactor
+data$floor = gsub("高", "high", data$floor)
+data$floor = gsub("低", "low", data$floor)
+data$floor = gsub("中", "mid", data$floor)
+data$floor = gsub("底", "bottom", data$floor)
+data$floor = gsub("顶", "low", data$floor)
+data$floor = gsub("未知", "unkown", data$floor)
+data$floor = gsub("钢混结构", "steel-concrete composite", data$floor)
+data$floor = gsub("混合结构", "mixed", data$floor)
+
+data$drawingRoom = gsub("中", "mid", data$drawingRoom)
+data$drawingRoom = gsub("高", "high", data$drawingRoom)
+data$drawingRoom = gsub("低", "low", data$drawingRoom)
+data$drawingRoom = gsub("底", "bottom", data$drawingRoom)
+data$drawingRoom = gsub("顶", "top", data$drawingRoom)
+
+# constructionTime has shift
+data$constructionTime = gsub("未知", "unknown", data$constructionTime)
+
+#Building type also have shift
+data$bathRoom = gsub("未知", "unknown", data$bathRoom)
+apply(data,2,function(x){sum(is.na(x))/length(x)*100})
+```
+
