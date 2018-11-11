@@ -1,5 +1,6 @@
  library(plyr)
  library(dplyr)
+ library(stringr)
  library(ggplot2)
  library(ggmap)
 # library(tidyr)
@@ -43,11 +44,7 @@ beijingMap <- ggmap(bjmap)
 
 ### Data Preprocessing
 
-#remove unused columnns
-data <- data[, !colnames(data) %in% c("url","id", "Cid")]
-
 #format columns because it has chinese characters encoded that we don't need
-data$floor <- as.factor(as.numeric(gsub("\\D", "", data$floor)))
 data$drawingRoom <- as.factor(as.numeric(gsub("\\D", "", data$drawingRoom)))
 data$constructionTime <- as.factor(as.numeric(gsub("\\D", "", data$constructionTime)))
 data$bathRoom <- as.factor(as.numeric(gsub("\\D", "", data$bathRoom)))
@@ -78,6 +75,10 @@ levels(data$buildingType)[levels(data$buildingType)=="0.429"] <- NA
 levels(data$buildingType)[levels(data$buildingType)=="0.5"] <- NA
 levels(data$buildingType)[levels(data$buildingType)=="0.667"] <- NA
 
+#split floor to have height info 
+temp <- as.data.frame(str_split_fixed(data$floor, " ", 2))
+colnames(temp) <- c("floorType", "floorLevel")
+data <- cbind(data, temp)
 
 #factor elevator, fiveyearsproperty, subway and change to yes/no
 data$elevator = factor(mapvalues(data$elevator, from = c(0, 1), to = c("no", "yes")))
@@ -88,6 +89,9 @@ data$subway = factor(mapvalues(data$subway, from = c(0, 1), to = c("no", "yes"))
 data$buildingType <- as.factor(data$buildingType)
 data$kitchen <- as.factor(data$kitchen)
 data$district <- as.factor(data$district)
+
+#remove unused columnns
+data <- data[, !colnames(data) %in% c("url","id", "Cid", "floor")]
 
 #ladderRAtio probably has outliers?
 
