@@ -226,4 +226,5 @@ print(kproto_results$the_summary)
 #
 # based on locations in the map, looks like cluster 4 is definitely farther from the centre - more suburban living
 # cluster 3 also outside of city centre - outskirts of the downtown
-# 1 and 2 are the high demand downtown properties
+# 1 and 2 are the downtown properties
+# cluster 2 taking the longest to sell because it's in prime real estate but they are small and expensive
