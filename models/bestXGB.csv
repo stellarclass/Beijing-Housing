@@ -1,0 +1,2 @@
+"nrounds","max_depth","eta","gamma","colsample_bytree","min_child_weight","subsample"
+200,5,0.1575,0,0.33,1,1
