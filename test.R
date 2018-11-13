@@ -5,24 +5,26 @@ library(ggplot2)
 library(ggmap)
 library(Hmisc)
 library(mice)
-library(miceadds)
-library(corrplot)
 library(lubridate)
+library(clustMixType)
 
+library(rlist)
+library(rgl)
+library(scatterplot3d)
 # library(tidyr)
 # library(cluster)
-# library(rgl)
+
 # library(maptools)
 # library(ggpubr)
 # library(viridis)
 # library(tidyverse)
-# library(scatterplot3d)
-# library(factoextra)
+
+library(factoextra)
 # library(fpc)
-# library(NbClust)
+ library(NbClust)
 # library(reshape2)
 # library(scales)
-# library(caret)
+ library(caret)
 # library(ROCR)
 # library(pROC)
 # library(rlist)
@@ -138,3 +140,90 @@ data$constructionTime <- mice_output$constructionTime
 #save the imputation
 write.csv(as.data.frame(mice_output), file="data/mice_output.csv")
 write.csv(as.data.frame(data), file="data/imputed_data.csv")
+
+
+#clustering
+
+data_clust <- data[, !colnames(data) %in% c("Lng", "Lat", "Cid", "district")]
+
+set.seed(1234)
+
+kproto_clusters = list()
+for (i in seq(2,8,1)) {
+  kproto_clusters = list.append(kproto_clusters,kproto(data_clust,i,lambda = 1))
+}
+
+wss = c()
+for(kc in kproto_clusters) {
+  wss = c(wss,kc$tot.withinss)
+}
+plot(seq(2,8,1),wss, type="b", xlab="Number of Clusters",ylab="Within groups sum of squares")
+
+kproto_selection = kproto_clusters[[3]]
+
+#3D plot
+pc <-princomp(data_clust, cor=TRUE, scores=TRUE)
+plot3d(pc$scores[,1:3], col=kproto_selection$cluster, main="k-means clusters")
+
+data3 <- data
+data3$cluster_id = as.factor(kproto_selection$cluster)
+bj_map <- data.frame(data3$price, data3$Lat, data3$Lng, data3$cluster_id)
+colnames(bj_map) <- c('price', 'lat', 'lon', 'cluster_id')
+sbbox <- make_bbox(lon = data3$Lng, lat = data3$Lat, f = 0.05)
+my_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, color="color", zoom = 10)
+ggmap(my_map) +
+  geom_point(data=bj_map, aes(x = lon, y = lat, color = cluster_id), 
+             size = 0.5, alpha = 1) +
+  xlab('Longitude') +
+  ylab('Latitude') +
+  ggtitle('Place Holder')
+
+kproto_results <- data3 %>%
+  dplyr::select(-price,-Lng,-Lat,-Cid,-district) %>%
+  group_by(cluster_id) %>%
+  do(the_summary = summary(.))
+print(kproto_results$the_summary)
+
+# cluster 1:
+# not on market for very long (15 days average but 1 day median!) - high demand!
+# price is about 350-400
+# tends to be pretty small - bachelor type (1b), 60-70 m^^2
+# not bungalows!
+# built in the 90s
+# elevator 50/50
+# tend to be owned for >5 years
+# near a subway
+# tends to be in the middle of the building
+# 
+# cluster 2:
+# on the market for a while - 34 average, 12 median
+# expensive! about 600-700!
+# 60-70 m^2 but tend to be 2b - quite cramped
+# tend to be plate type building
+# built in the 90s
+# even elevator distr, slightly more owned >5y
+# near a subway!
+# even floor dist except for bottom
+# 
+# cluster 3:
+# not on market for too long, but slightly longer than cluster 1 - 1 median 17 mean
+# pretty cheap - 300-350
+# slightly bigger than cluster 1, but only a little bit - 2b 70-80 m^2
+# not bungalows
+# slightly newer - built in '00s
+# has elevators, near subway, owned >5 years
+# more even dist of floors, but tend not to be on ground floor, solidly middle level
+# 
+# cluster 4:
+# sells very quickly - 1 median, 10 mean!
+# the cheapest - 200-250
+# very slightly bigger than cluster 3 - 80-90 m^2 but roughly same number of rooms
+# def not bungalows
+# also built in '00s but slightly newer
+# even distr of elevators, whether near subway or not, but tends to be no
+# slightly more 5y owned
+# even dist of floors, slightly less on bottom
+#
+# based on locations in the map, looks like cluster 4 is definitely farther from the centre - more suburban living
+# cluster 3 also outside of city centre - outskirts of the downtown
+# 1 and 2 are the high demand downtown properties
