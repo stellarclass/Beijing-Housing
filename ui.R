@@ -16,7 +16,6 @@ library(leaflet)
 sidebar <- dashboardSidebar(
   sidebarMenu(
     menuItem("Beijing Housing Exploring", tabName = "beijing", icon = icon("th")),
-    menuItem("Beijing Housing Clustering", icon = icon("dashboard"), tabName = "neighbourhoodClustering", badgeColor = "green"),
     menuItem("Beijing Housing Prediction", icon = icon("dashboard"), tabName = "housePricePrediction", badgeColor = "green")
   )
 )
@@ -50,10 +49,41 @@ body <- dashboardBody(
                     plotOutput("districtCompare")
                     
                   )
+              ),
+              box(title = "Beijing Price Analysis", width = 12, solidHeader = TRUE, status = "primary",
+                  box(
+                    title = "Categorical Attributes", width = 6, height = 750, status = "warning",
+                    selectInput("byAttribute", 
+                                strong("Observe by:"), 
+                                choices = list("Building Structure","Building Type", "Renovation Condition", "Has Elevator?", "Near Subway?", "5 Years Owner Property"),
+                                selected = "Building Structure"),
+                    plotOutput("priceAnalysis")
+                  ),
+                  box(
+                    title = "Numberic Attributes", width = 6, height = 750, status = "warning",
+                    plotOutput("priceColleration")
+                  )
               )
+              
             ),
-            
             ## Section 2
+            fluidRow(
+              box(title = "Beijing Housing Clustering", width = 12, solidHeader = TRUE, status = "primary",
+                  box(width = 12,
+                      plotOutput("beijingClustering", height = 900)
+                  ),
+                  box(title = "Clustering Information", width = 12, solidHeader = TRUE, status = "warning",
+                      selectInput("cluster","Cluster:", 
+                                  c(1:4)),
+                      collapsible = TRUE,
+                      verbatimTextOutput("clusterSummary")
+                  )
+              )
+              
+            )
+    ),
+    
+    tabItem(tabName = 'housePricePrediction',
             fluidRow(
               box(title = "Beijing Housing Trading Map", width = 12, solidHeader = TRUE, status = "primary",
                   box(
@@ -74,89 +104,6 @@ body <- dashboardBody(
                     title = "Beijing Map",  background = "black",
                     leafletOutput("beijingMap", height = 900)
                   )
-              )
-            ),
-            
-            ## Section 3
-            fluidRow(
-              ## Row 1
-              box(title = "Beijing Price Analysis", width = 12, solidHeader = TRUE, status = "primary",
-                  box(
-                    title = "Categorical Attributes", width = 6, height = 750, status = "warning",
-                    selectInput("byAttribute", 
-                                strong("Observe by:"), 
-                                choices = list("Building Structure","Building Type", "Renovation Condition", "Has Elevator?", "Near Subway?", "5 Years Owner Property"),
-                                selected = "Building Structure"),
-                    plotOutput("priceAnalysis")
-                  ),
-                  box(
-                    title = "Numberic Attributes", width = 6, height = 750, status = "warning",
-                    plotOutput("priceColleration")
-                  )
-              )
-            )
-    ),
-    
-    tabItem(tabName = 'neighbourhoodClustering',
-            fluidRow(
-              box(title = "Beijing Housing Clustering", width = 12, solidHeader = TRUE, status = "warning",
-                  box(
-                    title ="Number of Clusters", width = 3,
-                    sliderInput("clusterNo", "Top n:", 3, 6, 3)
-                  ),
-                  box(title = "Toronto Criminal Map By Neighbourhoods", width = 12, solidHeader = TRUE, status = "primary",
-                      box(
-                        title = "Manual Clustering Map", width = 4, height = 450, status = "warning",
-                        plotOutput("manualMap")
-                      ),
-                      
-                      box(
-                        title = "kMean Clustering Map", width = 4, height = 450, status = "warning",
-                        plotOutput("kMeanMap")
-                      ),
-                      
-                      box(
-                        title = "Hierarchical Clustering Map", width = 4, height = 450, status = "warning",
-                        plotOutput("hierarchicalMap")
-                      )
-                  ),
-                  box(
-                    title = "kMean Clustering", width = 12, height = 620, solidHeader = TRUE, status = "primary",
-                    box(
-                      title = "Determine number of clusters", width = 3,height = 550, status = "warning",
-                      plotOutput("kMeanElbow")
-                    ),
-                    box(
-                      title = "2D kMean Clustering", width = 4,height = 550, status = "warning",
-                      plotOutput("2DkMeanCluster")
-                    ),
-                    box(
-                      title = "3D kMean Clustering", width = 5,height = 550, status = "warning",
-                      rglwidgetOutput("3DkMeanCluster")
-                    )
-                  ),
-                  box(
-                    title = "Hierarchical Clustering", width = 12, height = 620, solidHeader = TRUE, status = "primary",
-                    box(
-                      title = "Hiearchical Cluster Diagram", width = 3,height = 550, status = "warning",
-                      plotOutput("clusterDiagram")
-                    ),
-                    box(
-                      title = "2D Hierarchical Clustering", width = 4,height = 550, status = "warning",
-                      plotOutput("2DHierarchicalCluster")
-                    ),
-                    box(
-                      title = "3D Hierarchichal Clustering", width = 5,height = 550, status = "warning",
-                      rglwidgetOutput("3DHierarchicalCluster")
-                    )
-                  )
-              )
-            )
-    ),
-    tabItem(tabName = 'housePricePrediction',
-            fluidRow(
-              box(title = "Beijing Housing Price Prediction", width = 12, solidHeader = TRUE, status = "warning"
-
               )
             )
     )

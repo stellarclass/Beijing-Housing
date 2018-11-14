@@ -36,8 +36,11 @@ library(gridExtra)
 library(caret)
 library(psych)
 library(leaflet)
-#library(doMC)
-#registerDoMC(2)
+library(clustMixType)
+library(rlist)
+library(rgl)
+library(factoextra)
+library(NbClust)
 
 
 ### data initial loading
@@ -52,53 +55,57 @@ map_dir = "map"
 
 ### loading data
 data_initial=read.csv(paste(data_dir,"new.csv",sep="/"), header = TRUE, sep = ",")
+data=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",")
+xgb_best = readRDS(paste(model_dir,"xgb.model",sep="/"))
+load(paste(model_dir,"kproto.rda",sep="/"))
+
 ### processing data
 #remove unused columnns
-data <- data_initial[, !colnames(data_initial) %in% c("id", "Cid")]
-data$floor <- as.factor(as.numeric(gsub("\\D", "", data$floor)))
-data$drawingRoom <- as.factor(as.numeric(gsub("\\D", "", data$drawingRoom)))
-data$constructionTime <- as.factor(as.numeric(gsub("\\D", "", data$constructionTime)))
-data$bathRoom <- as.factor(as.numeric(gsub("\\D", "", data$bathRoom)))
-data$livingRoom <- as.factor(as.numeric(gsub("\\D", "", data$livingRoom)))
+dataVisualize <- data_initial[, !colnames(data_initial) %in% c("id", "Cid")]
+dataVisualize$floor <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$floor)))
+dataVisualize$drawingRoom <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$drawingRoom)))
+dataVisualize$constructionTime <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$constructionTime)))
+dataVisualize$bathRoom <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$bathRoom)))
+dataVisualize$livingRoom <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$livingRoom)))
 
 #construction time has 0 and 1 listed for year of construction - incorrect so change them to NA
-levels(data$constructionTime)[levels(data$constructionTime)=="0"] <- NA
-levels(data$constructionTime)[levels(data$constructionTime)=="1"] <- NA
+levels(dataVisualize$constructionTime)[levels(dataVisualize$constructionTime)=="0"] <- NA
+levels(dataVisualize$constructionTime)[levels(dataVisualize$constructionTime)=="1"] <- NA
 
 #bathroom has what appears to be years - change to NA
-levels(data$bathRoom)[levels(data$bathRoom)=="1990"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="1994"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="1996"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2000"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2003"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2004"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2005"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2006"] <- NA
-levels(data$bathRoom)[levels(data$bathRoom)=="2011"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="1990"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="1994"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="1996"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2000"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2003"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2004"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2005"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2006"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2011"] <- NA
 
 #building type has decimal places when it should not - change to NA
-levels(data$buildingType)[levels(data$buildingType)=="0.048"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.125"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.25"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.333"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.375"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.429"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.5"] <- NA
-levels(data$buildingType)[levels(data$buildingType)=="0.667"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.048"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.125"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.25"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.333"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.375"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.429"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.5"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.667"] <- NA
 
 
 #factor elevator, fiveyearsproperty, subway and change to yes/no
-data$elevator = factor(mapvalues(data$elevator, from = c(0, 1), to = c("no", "yes")))
-data$fiveYearsProperty = factor(mapvalues(data$fiveYearsProperty, from = c(0, 1), to = c("no", "yes")))
-data$subway = factor(mapvalues(data$subway, from = c(0, 1), to = c("no", "yes")))
+dataVisualize$elevator = factor(mapvalues(dataVisualize$elevator, from = c(0, 1), to = c("no", "yes")))
+dataVisualize$fiveYearsProperty = factor(mapvalues(dataVisualize$fiveYearsProperty, from = c(0, 1), to = c("no", "yes")))
+dataVisualize$subway = factor(mapvalues(dataVisualize$subway, from = c(0, 1), to = c("no", "yes")))
 
 #factor building type, kitchen
-data$buildingType <- as.factor(data$buildingType)
-data$kitchen <- as.factor(data$kitchen)
-data$district <- as.factor(data$district)
+dataVisualize$buildingType <- as.factor(dataVisualize$buildingType)
+dataVisualize$kitchen <- as.factor(dataVisualize$kitchen)
+dataVisualize$district <- as.factor(dataVisualize$district)
 
 #fill in DOM value
-data$DOM<- ifelse(is.na(data$DOM),median(data$DOM,na.rm=T),data$DOM)
+dataVisualize$DOM<- ifelse(is.na(dataVisualize$DOM),median(dataVisualize$DOM,na.rm=T),dataVisualize$DOM)
 
 #converting numeric to categorical
 #building type
@@ -120,8 +127,8 @@ makeBuildingType <- function(x){
   }
   else{return('missing')}
 }
-data$buildingType <- sapply(data$buildingType, makeBuildingType)
-data <- data.frame(data %>% filter(buildingType != 'wrong_coded' & buildingType !='missing'))
+dataVisualize$buildingType <- sapply(dataVisualize$buildingType, makeBuildingType)
+dataVisualize <- data.frame(dataVisualize %>% filter(buildingType != 'wrong_coded' & buildingType !='missing'))
 
 #building condition
 makeRenovationCondition <- function(x){
@@ -138,7 +145,7 @@ makeRenovationCondition <- function(x){
     return('Hardcover')
   }
 }
-data$renovationCondition <- sapply(data$renovationCondition, makeRenovationCondition)
+dataVisualize$renovationCondition <- sapply(dataVisualize$renovationCondition, makeRenovationCondition)
 
 # Building Structure
 makeBuildingStructure <- function(x){
@@ -161,15 +168,14 @@ makeBuildingStructure <- function(x){
     return('Steel_Concrete')
   }
 }
-data$buildingStructure <- sapply(data$buildingStructure, makeBuildingStructure)
+dataVisualize$buildingStructure <- sapply(dataVisualize$buildingStructure, makeBuildingStructure)
 
 # Adding 2 attributes Month and Year for Selling Time
-data$tradeYear <- year(dmy(data$tradeTime))
-data$tradeMonth <- month(dmy(data$tradeTime))
-
+dataVisualize$tradeYear <- year(dmy(dataVisualize$tradeTime))
+dataVisualize$tradeMonth <- month(dmy(dataVisualize$tradeTime))
 
 ### Function declare
-df3 <- data.frame(data %>% na.omit())
+df3 <- data.frame(dataVisualize %>% na.omit())
 df3$buildingType <- as.factor(df3$buildingType)
 df3$buildingStructure <- as.factor(df3$buildingStructure)
 df3$elevator <- as.factor(df3$elevator)
@@ -177,7 +183,6 @@ df3$fiveYearsProperty <- as.factor(df3$fiveYearsProperty)
 df3$subway <- as.factor(df3$subway)
 df3$district <- as.factor(df3$district)
 df3$renovationCondition <- as.factor(df3$renovationCondition)
-#df3$tradeYear <- as.factor(df3$tradeYear)
 df3$tradeTimeTs <- as.Date(df3$tradeTime, format = "%Y-%m-%d")
 df3$monthlyTradeTS <- as.Date(paste0(df3$tradeYear,'-',df3$tradeMonth,'-01'))
 
@@ -194,6 +199,11 @@ makeFeatureCatEDA <- function(x){
     grid.arrange(mybox, ncol=1)
 }
 
+### clustered data
+data3 <- data
+data3$cluster_id = as.factor(kproto_selection$cluster)
+bj_map <- data.frame(data3$price, data3$Lat, data3$Lng, data3$cluster_id)
+colnames(bj_map) <- c('price', 'lat', 'lon', 'cluster_id')
 
 #### Shiny app
 shinyServer(function(input, output,session) {
@@ -201,7 +211,7 @@ shinyServer(function(input, output,session) {
   ##### Beijing Overview
   output$beijingAll <- renderPlot({
     if (input$allOption == "Volume"){
-      year_data <- subset(data,!(data$tradeYear < 2011))
+      year_data <- subset(dataVisualize,!(dataVisualize$tradeYear < 2011))
       all_group <- group_by(year_data, district, tradeYear)
       beijing_by_volume <- dplyr::summarise(all_group, n=n())
       ggplot(aes(x = tradeYear , y = n, fill = district), data = beijing_by_volume) +
@@ -214,7 +224,7 @@ shinyServer(function(input, output,session) {
               axis.title = element_text(size = 12, face = "bold"),
               axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
     } else if (input$allOption == "Value") {
-      year_data <- subset(data,!(data$tradeYear < 2011))
+      year_data <- subset(dataVisualize,!(dataVisualize$tradeYear < 2011))
       all_group <- group_by(year_data, district, tradeYear)
       beijing_by_value <- dplyr::summarise(all_group, value=sum(totalPrice)/1000)
       ggplot(aes(x = tradeYear , y = value, fill = district), data = beijing_by_value) +
@@ -227,7 +237,7 @@ shinyServer(function(input, output,session) {
               axis.title = element_text(size = 12, face = "bold"),
               axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
     } else {
-        all_group <- group_by(data, tradeYear)
+        all_group <- group_by(dataVisualize, tradeYear)
         beijing_by_average_price <- dplyr::summarise(all_group, average=mean(totalPrice))
         ggplot(aes(x=tradeYear, y=average), data =beijing_by_average_price) +
         geom_line(size=1.5) +
@@ -242,7 +252,7 @@ shinyServer(function(input, output,session) {
   
   ### District Compare
   output$districtCompare <- renderPlot({
-    compareData <- subset(data, data$tradeYear == input$yearCompare)
+    compareData <- subset(dataVisualize, dataVisualize$tradeYear == input$yearCompare)
     if (input$compareOption == "Volume"){
       all_group <- group_by(compareData, district, tradeYear)
       beijing_by_volume <- dplyr::summarise(all_group, n=n())
@@ -278,6 +288,24 @@ shinyServer(function(input, output,session) {
     
   })
   
+  ### Beijing Clustering
+  output$beijingClustering <- renderPlot({
+    sbbox <- make_bbox(lon = data3$Lng, lat = data3$Lat, f = 0.05)
+    my_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, color="color", zoom = 10)
+    ggmap(my_map) +
+      geom_point(data=bj_map, aes(x = lon, y = lat, color = cluster_id), 
+                 size = 0.5, alpha = 1) +
+      xlab('Longitude') +
+      ylab('Latitude') 
+  })
+  
+  output$clusterSummary <- renderPrint({
+    kproto_results <- subset(data3, data3$cluster_id == input$cluster) %>%
+      dplyr::select(-price,-Lng,-Lat,-Cid,-district, -tradeTime) %>%
+      do(the_summary = summary(.))
+    print(kproto_results$the_summary)
+  })
+  
   
   ### Beijing Map
   output$priceChart <- renderPlot({
@@ -298,14 +326,14 @@ shinyServer(function(input, output,session) {
   
   output$beijingMap <- renderLeaflet({
     if (input$byDistrict == 0){
-      map_data <- subset(data, data$tradeYear == input$byYear & data$price >= input$priceRange[1] & data$price <= input$priceRange[2])
+      map_data <- subset(dataVisualize, dataVisualize$tradeYear == input$byYear & dataVisualize$price >= input$priceRange[1] & dataVisualize$price <= input$priceRange[2])
     }else {
-      map_data <- subset(data, data$tradeYear == input$byYear & data$district == input$byDistrict & data$price >= input$priceRange[1] & data$price <= input$priceRange[2])
+      map_data <- subset(dataVisualize, dataVisualize$tradeYear == input$byYear & dataVisualize$district == input$byDistrict & dataVisualize$price >= input$priceRange[1] & dataVisualize$price <= input$priceRange[2])
     }
     if (input$colourBy == "District"){
       pal <- colorFactor(
         palette = colorRampPalette(brewer.pal(12,'Paired'))(13),
-        domain = data$district
+        domain = dataVisualize$district
       )
       m <- leaflet(map_data) %>%  
         addTiles('http://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', 
@@ -322,7 +350,7 @@ shinyServer(function(input, output,session) {
     }else {
       pal <- colorNumeric(
         palette = "Blues",
-        domain = data$price
+        domain = dataVisualize$price
       )
       m <- leaflet(map_data) %>%  
         addTiles('http://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', 
@@ -368,95 +396,4 @@ shinyServer(function(input, output,session) {
       tl.col='black')
   }, width = 700, height = 650)
   
-  # ### Map and Clustering
-  # 
-  # ### Strategy I - Clustering By Neighbourhood
-  # output$manualMap <- renderPlot({
-  #   total_offence_cnt_table = data %>% group_by(Hood_ID) %>% dplyr::summarise(offence_cnt = n())
-  #   hood_total_offence_cnt_table = merge(total_offence_cnt_table,sh@data,by.x='Hood_ID',by.y='AREA_S_CD')
-  #   points_offense_cnt <- fortify(sh, region = 'AREA_S_CD')
-  #   points_offense_cnt <- merge(points_offense_cnt, hood_total_offence_cnt_table, by.x='id', by.y='Hood_ID', all.x=TRUE)
-  #   torontoMap + geom_polygon(aes(x=long,y=lat, group=group, fill=offence_cnt), data=points_offense_cnt, color='black') +
-  #     scale_fill_distiller(palette='Spectral') + scale_alpha(range=c(0.5,0.5))
-  # })
-  # 
-  # 
-  # output$kMeanElbow <- renderPlot({
-  #   
-  #   #determine number of clusters
-  #   wssplot <- function(data, nc=15, seed=1234) {
-  #     wss <- (nrow(data)-1)*sum(apply(data,2,var))
-  #     for (i in 2:nc) {
-  #       set.seed(seed)
-  #       wss[i] <- sum(kmeans(data, centers=i)$withinss)
-  #     }
-  #     plot(1:nc, wss, type="b", xlab="Number of Clusters",
-  #          ylab="Within groups sum of squares")
-  #   }
-  #   #we can see there's an elbow around 3 clusters
-  #   wssplot(hood, nc=15)
-  #   
-  # })
-  # 
-  # output$`2DkMeanCluster` <- renderPlot({
-  #   clusplot(hood, neighbourhoodKMean$kMeanClusters,
-  #            color=TRUE, shade=TRUE,
-  #            labels=2, lines=0)
-  # })
-  # 
-  # output$`3DkMeanCluster` <- renderRglwidget({
-  #   # k-means
-  #   pc <-princomp(hood, cor=TRUE, scores=TRUE)
-  #   rgl.open(useNULL = T)
-  #   rgl.bg(color = "white" )
-  #   rgl.spheres(pc$scores[,1:3], r = 0.2, col=neighbourhoodKMean$kMeanClusters)
-  #   rgl.bbox(color=c("#333377","black"), emission="#333377",
-  #             specular="#3333FF", shininess=5, alpha=0.8, xlen=5, ylen=5, zlen=2, marklen=15.9) 
-  #   rglwidget()
-  # })
-  # 
-  # output$kMeanMap <- renderPlot({
-  #   cluster_ids <- neighbourhoodKMean$kMeanClusters
-  #   hood_ids_and_cluster_ids <- data.frame(cbind(hood_id,cluster_ids))
-  #   hood_ids_and_cluster_ids$cluster_ids = as.factor(hood_ids_and_cluster_ids$cluster_ids)
-  #   hood_name_and_cluster_ids = merge(hood_ids_and_cluster_ids,sh@data,by.x='hood_id',by.y='AREA_S_CD')
-  #   points_clustering <- fortify(sh, region = 'AREA_S_CD')
-  #   points_clustering <- merge(points_clustering, hood_name_and_cluster_ids, by.x='id', by.y='hood_id', all.x=TRUE)
-  #   torontoMap + geom_polygon(aes(x=long,y=lat, group=group, fill=cluster_ids), data=points_clustering, color='black') +
-  #   scale_fill_brewer(palette = "Set2")
-  # })
-  # 
-  # output$clusterDiagram <- renderPlot({
-  #   plot(H.fit)
-  #   rect.hclust(H.fit, k=input$clusterNo, border="red") 
-  # })
-  # 
-  # output$`2DHierarchicalCluster` <- renderPlot({
-  #   clusplot(hood, cutree(H.fit, k=input$clusterNo) ,
-  #            color=TRUE, shade=TRUE,
-  #            labels=2, lines=0)
-  # })
-  # 
-  # output$`3DHierarchicalCluster` <- renderRglwidget({
-  #   pc <-princomp(hood, cor=TRUE, scores=TRUE)
-  #   rgl.open(useNULL = T)
-  #   rgl.bg(color = "white" )
-  #   rgl.spheres(pc$scores[,1:3], r = 0.2, col=cutree(H.fit, k=input$clusterNo) )
-  #   rgl.bbox(color=c("#333377","black"), emission="#333377",
-  #            specular="#3333FF", shininess=5, alpha=0.8, xlen=5, ylen=5, zlen=2, marklen=15.9) 
-  #   rglwidget()
-  # })
-  # 
-  # output$hierarchicalMap <- renderPlot({
-  #   cluster_ids <- cutree(H.fit, k=input$clusterNo)
-  #   hood_ids_and_cluster_ids <- data.frame(cbind(hood_id,cluster_ids))
-  #   hood_ids_and_cluster_ids$cluster_ids = as.factor(hood_ids_and_cluster_ids$cluster_ids)
-  #   hood_name_and_cluster_ids = merge(hood_ids_and_cluster_ids,sh@data,by.x='hood_id',by.y='AREA_S_CD')
-  #   points_clustering <- fortify(sh, region = 'AREA_S_CD')
-  #   points_clustering <- merge(points_clustering, hood_name_and_cluster_ids, by.x='id', by.y='hood_id', all.x=TRUE)
-  #   torontoMap + geom_polygon(aes(x=long,y=lat, group=group, fill=cluster_ids), data=points_clustering, color='black') +
-  #     scale_fill_brewer(palette = "Set2")
-  # })
-  # 
-
 })
