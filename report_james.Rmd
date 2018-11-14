@@ -259,18 +259,6 @@ xgb_tune5 <- caret::train(
   preProcess = c("zv", "nzv","center","scale")
 )
 
-model_list = list(v1=xgb_tune1,
-                  v2=xgb_tune2,
-                  v3=xgb_tune3,
-                  v4=xgb_tune4,
-                  v5=xgb_tune5,
-                  xgboost_base=xgb_base
-                  )
-resamps <- resamples(model_list)
-summary(resamps, metric = "RMSE")
-dotplot(resamps, metric = "RMSE")
-print(xgb_tune5$bestTune)
-bestTune = xgb_tune5$bestTune
 write.csv(bestTune,paste(model_dir,"bestXGB.csv",sep = "/"),row.names = F)
 # Retrain the best models
 grid_best <- expand.grid(
@@ -293,37 +281,33 @@ xgb_best <- caret::train(
     preProcess = c("zv", "nzv","center","scale")
   )
 saveRDS(xgb_best, paste(model_dir,"xgb.model",sep="/"))
+saveRDS(xgb_base, paste(model_dir,"xgb_base.model",sep="/"))
+saveRDS(xgb_tune1, paste(model_dir,"xgb_tune1.model",sep="/"))
+saveRDS(xgb_tune2, paste(model_dir,"xgb_tune2.model",sep="/"))
+saveRDS(xgb_tune3, paste(model_dir,"xgb_tune3.model",sep="/"))
+saveRDS(xgb_tune4, paste(model_dir,"xgb_tune4.model",sep="/"))
+saveRDS(xgb_tune5, paste(model_dir,"xgb_tune5.model",sep="/"))
 }
-if(!file.exists(paste(model_dir,"xgb.model",sep="/"))) {
-  bestTune = read.csv(paste(model_dir,"bestXGB.csv",sep = "/"), header = TRUE, sep = ",")
-  grid_best <- expand.grid(
-    nrounds = bestTune$nrounds,
-    max_depth = bestTune$max_depth,
-    eta = bestTune$eta,
-    gamma = bestTune$gamma,
-    colsample_bytree = bestTune$colsample_bytree,
-    min_child_weight = bestTune$min_child_weight,
-    subsample = bestTune$subsample
-  )
-  xgb_best <- caret::train(
-    x = train_x,
-    y = train_y,
-    metric = "RMSE",
-    trControl = train_control,
-    tuneGrid = grid_best,
-    method = "xgbTree",
-    verbose = TRUE,
-    preProcess = c("zv", "nzv","center","scale")
-  )
-  saveRDS(xgb_best, paste(model_dir,"xgb.model",sep="/"))
-} else {
-  xgb_best = readRDS(paste(model_dir,"xgb.model",sep="/"))
-}
+xgb_best = readRDS(paste(model_dir,"xgb.model",sep="/"))
+xgb_base = readRDS(paste(model_dir,"xgb_base.model",sep="/"))
+xgb_tune1 = readRDS(paste(model_dir,"xgb_tune1.model",sep="/"))
+xgb_tune2 = readRDS(paste(model_dir,"xgb_tune2.model",sep="/"))
+xgb_tune3 = readRDS(paste(model_dir,"xgb_tune3.model",sep="/"))
+xgb_tune4 = readRDS(paste(model_dir,"xgb_tune4.model",sep="/"))
+xgb_tune5 = readRDS(paste(model_dir,"xgb_tune5.model",sep="/"))
+model_list = list(v1=xgb_tune1,
+                  v2=xgb_tune2,
+                  v3=xgb_tune3,
+                  v4=xgb_tune4,
+                  v5=xgb_tune5,
+                  xgboost_base=xgb_base
+                  )
+resamps <- resamples(model_list)
+summary(resamps, metric = "RMSE")
+dotplot(resamps, metric = "RMSE")
+print(xgb_tune5$bestTune)
+bestTune = xgb_tune5$bestTune
 ```
-
-model_rf$results
-  mtry  splitrule min.node.size     RMSE  Rsquared      MAE   RMSESD   RsquaredSD    MAESD
-1   53 extratrees             1 3623.599 0.9634308 1943.905 42.66113 0.0008186957 33.56537
 
 ```{r}
 model_rpart <- caret::train(
@@ -336,8 +320,7 @@ model_rpart <- caret::train(
     trControl = train_control,
     method = "rpart",
     preProcess = c("zv", "nzv","center","scale")
-  )
-
+)
 model_glm <- caret::train(
     price ~.-livingRoom-elevator, data_train_nodummy,
     metric = "RMSE",
@@ -370,6 +353,10 @@ model_list = list(glm=model_glm,
 resamps <- resamples(model_list)
 summary(resamps, metric = "RMSE")
 dotplot(resamps, metric = "RMSE")
+
+library(xgboost)
+mat = xgb.importance (feature_names = colnames(train_x),model = xgb_best$finalModel)
+xgb.plot.importance (importance_matrix = mat[1:20]) 
 ```
 
 ## VII. Deployment
