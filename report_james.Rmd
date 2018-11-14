@@ -1,0 +1,377 @@
+---
+title: "Bank Marketing - Term Deposit Classification Model"
+author: "TALL Machine Learning - Zheng (James) Lai, Iman Lau, Dung Tran"
+date: "October 12, 2018"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+```{r warning=FALSE,message=FALSE}
+library(plyr)
+library(dplyr)
+library(Hmisc)
+library(ggpubr)
+library(DMwR)
+library(caret)
+library(pROC)
+library(ggplot2)
+library(ggpubr)
+library(stringr)
+library(lubridate)
+library(fastDummies)
+library(Matrix)
+library(onehot)
+library(vtreat)
+library(statsr)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(RColorBrewer)
+library(rworldmap)
+library(ggthemes)
+library(rgdal)
+library(corrplot)
+library(reshape2)
+library(gridExtra)
+library(lubridate)
+library(caret)
+library(psych)
+library(reshape2)
+library(doMC)
+registerDoMC(4)
+set.seed(42)
+model_dir = "models"
+data_dir = "data"
+```
+
+## I. Introduction
+
+## II. Business Understanding
+
+## III. Data Understanding
+
+Attribute    | Description
+-------------|------------------------------------------------------------------------
+
+## IV. Data Exploration and Preparation
+
+### (1) Visualizations for client-related attributes
+
+### (2) Visualizations for the social/economic attributes
+
+### (3) Data outliers
+
+### (4) Data correlations
+
+### (5) Possible inconsistencies in data
+
+### (6) Data Preprocessing
+
+# Mice imputed data
+```{r}
+data=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",")
+
+# Convert to useful type
+data$tradeTime = ymd(data$tradeTime)
+data$year = year(data$tradeTime)
+data = data[, !colnames(data) %in% c("tradeTime")]
+
+data$drawingRoom = as.integer(data$drawingRoom)
+data$bathRoom = as.integer(data$bathRoom)
+data$buildingType = as.factor(data$buildingType)
+data$constructionTime = as.integer(data$constructionTime)
+data$renovationCondition = as.factor(data$renovationCondition)
+data$buildingStructure = as.factor(data$buildingStructure)
+data$elevator = as.factor(data$elevator)
+data$fiveYearsProperty = as.factor(data$fiveYearsProperty)
+data$subway = as.factor(data$subway)
+data$district=as.factor(data$district)
+
+# non informative columns; or factors that have too many levels like Cid
+data = data[,!colnames(data) %in% c("url","id","Cid", "totalPrice", "X")]
+```
+
+## V. Modeling
+
+```{r}
+data_train_nodummy <- data.frame(data %>% filter(year<2017))
+data_test_nodummy <- data.frame(data %>% filter(year>=2017))
+```
+
+```{r}
+for(col in names(data)) {
+  if(!is.factor(data[,col])) {
+    data[,col] = as.numeric(data[,col])
+    next
+  }
+  if(col=="price") next
+  f = as.formula(paste("price~",col,"-1",sep=""))
+  m = model.matrix(f,data)
+  data = data[,!colnames(data) %in% c(col)]
+  data = cbind(data,m)
+}
+
+data_train <- data.frame(data %>% filter(year<2017))
+data_test <- data.frame(data %>% filter(year>=2017))
+train_x = as.matrix(data_train[,!colnames(data_train) %in% c("price")])
+train_y = data_train[,colnames(data_train) %in% c("price")]
+test_x = as.matrix(data_test[,!colnames(data_test) %in% c("price")])
+test_y = data_test[,colnames(data_test) %in% c("price")]
+folds <- createFolds(train_y, k = 5)
+train_control <- trainControl(
+  method = "cv",
+  index = folds,
+  verboseIter = F,
+  allowParallel = TRUE # FALSE for reproducible results 
+)
+```
+
+```{r}
+TUNE_XGB = F
+if(TUNE_XGB) {
+grid_default <- expand.grid(
+  nrounds = 100,
+  max_depth = 6,
+  eta = 0.3,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+xgb_base <- caret::train(
+  x = train_x,
+  y = train_y,
+  metric = "RMSE",
+  trControl = train_control,
+  tuneGrid = grid_default,
+  method = "xgbTree",
+  verbose = TRUE,
+  preProcess = c("zv", "nzv","center","scale")
+)
+
+nrounds <- 500
+# note to start nrounds from 200, as smaller learning rates result in errors so
+# big with lower starting points that they'll mess the scales
+tune_grid1 <- expand.grid(
+  nrounds = seq(from = 100, to = nrounds, by = 100),
+  eta = c(0.05, 0.1, 0.3),
+  max_depth = c(2, 4, 6, 8),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+xgb_tune1 <- caret::train(
+  x = train_x,
+  y = train_y,
+  metric = "RMSE",
+  trControl = train_control,
+  tuneGrid = tune_grid1,
+  method = "xgbTree",
+  verbose = TRUE,
+  preProcess = c("zv", "nzv","center","scale")
+)
+
+tune_grid2 <- expand.grid(
+  nrounds = seq(from = 100, to = nrounds, by = 100),
+  eta = xgb_tune1$bestTune$eta,
+  max_depth = xgb_tune1$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = c(1, 2, 3),
+  subsample = 1
+)
+
+xgb_tune2 <- caret::train(
+  x = train_x,
+  y = train_y,
+  metric = "RMSE",
+  trControl = train_control,
+  tuneGrid = tune_grid2,
+  method = "xgbTree",
+  verbose = TRUE,
+  preProcess = c("zv", "nzv","center","scale")
+)
+
+tune_grid3 <- expand.grid(
+  nrounds = seq(from = 100, to = nrounds, by = 100),
+  eta = xgb_tune1$bestTune$eta,
+  max_depth = xgb_tune1$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = c(0.33, 0.66, 1.0),
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = c(0.5, 0.75, 1.0)
+)
+
+xgb_tune3 <- caret::train(
+  x = train_x,
+  y = train_y,
+  metric = "RMSE",
+  trControl = train_control,
+  tuneGrid = tune_grid3,
+  method = "xgbTree",
+  verbose = TRUE,
+  preProcess = c("zv", "nzv","center","scale")
+)
+
+tune_grid4 <- expand.grid(
+  nrounds = seq(from = 100, to = nrounds, by = 100),
+  eta = xgb_tune1$bestTune$eta,
+  max_depth = xgb_tune1$bestTune$max_depth,
+  gamma = c(0, 0.1, 0.5, 0.8, 1.0),
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+
+xgb_tune4 <- caret::train(
+  x = train_x,
+  y = train_y,
+  metric = "RMSE",
+  trControl = train_control,
+  tuneGrid = tune_grid4,
+  method = "xgbTree",
+  verbose = TRUE,
+  preProcess = c("zv", "nzv","center","scale")
+)
+
+tune_grid5 <- expand.grid(
+  nrounds = seq(from = 100, to = nrounds, by = 100),
+  eta = seq(xgb_tune1$bestTune$eta,xgb_tune1$bestTune$eta/20,length.out = 5),
+  max_depth = xgb_tune1$bestTune$max_depth,
+  gamma = xgb_tune4$bestTune$gamma,
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+
+xgb_tune5 <- caret::train(
+  x = train_x,
+  y = train_y,
+  metric = "RMSE",
+  trControl = train_control,
+  tuneGrid = tune_grid5,
+  method = "xgbTree",
+  verbose = TRUE,
+  preProcess = c("zv", "nzv","center","scale")
+)
+
+model_list = list(v1=xgb_tune1,
+                  v2=xgb_tune2,
+                  v3=xgb_tune3,
+                  v4=xgb_tune4,
+                  v5=xgb_tune5,
+                  xgboost_base=xgb_base
+                  )
+resamps <- resamples(model_list)
+summary(resamps, metric = "RMSE")
+dotplot(resamps, metric = "RMSE")
+print(xgb_tune5$bestTune)
+bestTune = xgb_tune5$bestTune
+write.csv(bestTune,paste(model_dir,"bestXGB.csv",sep = "/"),row.names = F)
+# Retrain the best models
+grid_best <- expand.grid(
+    nrounds = bestTune$nrounds,
+    max_depth = bestTune$max_depth,
+    eta = bestTune$eta,
+    gamma = bestTune$gamma,
+    colsample_bytree = bestTune$colsample_bytree,
+    min_child_weight = bestTune$min_child_weight,
+    subsample = bestTune$subsample
+  )
+xgb_best <- caret::train(
+    x = train_x,
+    y = train_y,
+    metric = "RMSE",
+    trControl = train_control,
+    tuneGrid = grid_best,
+    method = "xgbTree",
+    verbose = TRUE,
+    preProcess = c("zv", "nzv","center","scale")
+  )
+saveRDS(xgb_best, paste(model_dir,"xgb.model",sep="/"))
+}
+if(!file.exists(paste(model_dir,"xgb.model",sep="/"))) {
+  bestTune = read.csv(paste(model_dir,"bestXGB.csv",sep = "/"), header = TRUE, sep = ",")
+  grid_best <- expand.grid(
+    nrounds = bestTune$nrounds,
+    max_depth = bestTune$max_depth,
+    eta = bestTune$eta,
+    gamma = bestTune$gamma,
+    colsample_bytree = bestTune$colsample_bytree,
+    min_child_weight = bestTune$min_child_weight,
+    subsample = bestTune$subsample
+  )
+  xgb_best <- caret::train(
+    x = train_x,
+    y = train_y,
+    metric = "RMSE",
+    trControl = train_control,
+    tuneGrid = grid_best,
+    method = "xgbTree",
+    verbose = TRUE,
+    preProcess = c("zv", "nzv","center","scale")
+  )
+  saveRDS(xgb_best, paste(model_dir,"xgb.model",sep="/"))
+} else {
+  xgb_best = readRDS(paste(model_dir,"xgb.model",sep="/"))
+}
+```
+
+model_rf$results
+  mtry  splitrule min.node.size     RMSE  Rsquared      MAE   RMSESD   RsquaredSD    MAESD
+1   53 extratrees             1 3623.599 0.9634308 1943.905 42.66113 0.0008186957 33.56537
+
+```{r}
+model_rpart <- caret::train(
+    x = train_x,
+    y = train_y,
+    metric = "RMSE",
+    tuneGrid = expand.grid(
+      cp = c(0:3/10)
+    ),
+    trControl = train_control,
+    method = "rpart",
+    preProcess = c("zv", "nzv","center","scale")
+  )
+
+model_glm <- caret::train(
+    price ~.-livingRoom-elevator, data_train_nodummy,
+    metric = "RMSE",
+    trControl = train_control,
+    method = "glm",
+    preProcess = c("zv", "nzv","center","scale")
+)
+```
+
+## VI. Evaluation
+```{r}
+pred<-data.frame('Prediction'= predict(xgb_base,test_x),'True' = test_y)
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
+       theme_minimal(12) + labs(title=paste0('Ground truth vs. Prediction for ',xgb_base$method))
+pred<-data.frame('Prediction'= predict(model_rpart,test_x),'True' = test_y)
+ggplot(data=pred,aes(x=Prediction,y=True)) + geom_jitter() + geom_abline(slope=1,intercept=0,colour = "blue") +
+       theme_minimal(12) + labs(title=paste0('Ground truth vs. Prediction for ',model_rpart$method))
+pred<-data.frame('Prediction'= predict(model_glm,data_test_nodummy),'True' = data_test_nodummy$price)
+ggplot(data=pred,aes(x=Prediction,y=True)) + geom_jitter()+ geom_abline(slope=1,intercept=0,colour = "blue") +
+       theme_minimal(12) + labs(title=paste0('Ground truth vs. Prediction for ',model_glm$method))
+#grid.arrange(p1,p2,p3,ncol=1)
+```
+
+Final comparison of RMSE of three models.
+```{r}
+model_list = list(glm=model_glm,
+                  rpart=model_rpart,
+                  xgboost=xgb_best
+                  )
+resamps <- resamples(model_list)
+summary(resamps, metric = "RMSE")
+dotplot(resamps, metric = "RMSE")
+```
+
+## VII. Deployment
+
+## VIII. Conclusions
