@@ -334,13 +334,13 @@ model_glm <- caret::train(
 ```{r}
 pred<-data.frame('Prediction'= predict(xgb_base,test_x),'True' = test_y)
 ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
-       theme_minimal(12) + labs(title=paste0('Ground truth vs. Prediction for ',xgb_base$method))
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',xgb_base$method))
 pred<-data.frame('Prediction'= predict(model_rpart,test_x),'True' = test_y)
-ggplot(data=pred,aes(x=Prediction,y=True)) + geom_jitter() + geom_abline(slope=1,intercept=0,colour = "blue") +
-       theme_minimal(12) + labs(title=paste0('Ground truth vs. Prediction for ',model_rpart$method))
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_abline(slope=1,intercept=0,colour = "blue") +
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model_rpart$method))
 pred<-data.frame('Prediction'= predict(model_glm,data_test_nodummy),'True' = data_test_nodummy$price)
-ggplot(data=pred,aes(x=Prediction,y=True)) + geom_jitter()+ geom_abline(slope=1,intercept=0,colour = "blue") +
-       theme_minimal(12) + labs(title=paste0('Ground truth vs. Prediction for ',model_glm$method))
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter()+ geom_abline(slope=1,intercept=0,colour = "blue") +
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model_glm$method))
 #grid.arrange(p1,p2,p3,ncol=1)
 ```
 
