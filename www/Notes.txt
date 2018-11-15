@@ -1,0 +1,1 @@
+You need to pu the report.html in this folder in order to have the link in the application working.
