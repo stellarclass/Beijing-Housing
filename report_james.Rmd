@@ -39,6 +39,7 @@ library(caret)
 library(psych)
 library(reshape2)
 library(doMC)
+library(xgboost)
 registerDoMC(4)
 set.seed(42)
 model_dir = "models"
@@ -54,6 +55,29 @@ data_dir = "data"
 Attribute    | Description
 -------------|------------------------------------------------------------------------
 
+ - **url**:  the url which fetches the data
+ - **id**:  the id of transaction
+ - **Lng**:  and **Lat**  coordinates, using the **BD09** protocol. 
+ - **Cid**:  community id
+ - **tradeTime**:  the time of transaction
+ - **DOM**:  active days on market.Know more in https://en.wikipedia.org/wiki/Days_on_market
+ - **followers**:  the number of people follow the transaction.
+ - **totalPrice**:  the total price in multiple of 10,000
+ - **price**:  the average price by square
+ - **square**:  the square of house
+ - **livingRoom**:   the number of living room
+ - **drawingRoom**:  the number of drawing room
+ - **kitchen**:  the number of kitchen
+ - **bathroom** the number of bathroom
+ - **floor**:  the height of the house. I will turn the Chinese characters to English in the next version.
+ - **buildingType**:  including tower( 1 ) , bungalow( 2 )，combination of plate and tower( 3 ), plate( 4 ).
+ - **constructionTime**:  the time of construction
+ - **renovationCondition**: including other( 1 ), rough( 2 ),Simplicity( 3 ), hardcover( 4 )
+ - **buildingStructure**: including unknow( 1 ), mixed( 2 ), brick and wood( 3 ), brick and concrete( 4 ),steel( 5 ) and steel-concrete composite ( 6 ).
+ - **ladderRatio**:  the proportion between number of residents on the same floor and number of elevator of ladder. It describes how many ladders a resident have on average.
+ - **elevator** have ( 1 ) or not have elevator( 0 )
+ - **fiveYearsProperty**:  if the owner have the property for less than 5 years, 
+
 ## IV. Data Exploration and Preparation
 
 ### (1) Visualizations for client-related attributes
@@ -67,6 +91,31 @@ Attribute    | Description
 ### (5) Possible inconsistencies in data
 
 ### (6) Data Preprocessing
+First of all we want to convert all Chinese characters in the dataset into English.
+```{r}
+### Loading data
+data=read.csv(paste(data_dir,"original_data.csv",sep="/"), header = TRUE, sep = ",",na.strings = c("nan","#NAME?"), fileEncoding="gbk")
+data$floor = gsub("高", "high", data$floor)
+data$floor = gsub("低", "low", data$floor)
+data$floor = gsub("中", "mid", data$floor)
+data$floor = gsub("底", "bottom", data$floor)
+data$floor = gsub("顶", "low", data$floor)
+data$floor = gsub("未知", "unkown", data$floor)
+data$floor = gsub("钢混结构", "steel-concrete composite", data$floor)
+data$floor = gsub("混合结构", "mixed", data$floor)
+data$drawingRoom = gsub("中", "mid", data$drawingRoom)
+data$drawingRoom = gsub("高", "high", data$drawingRoom)
+data$drawingRoom = gsub("低", "low", data$drawingRoom)
+data$drawingRoom = gsub("底", "bottom", data$drawingRoom)
+data$drawingRoom = gsub("顶", "top", data$drawingRoom)
+data$constructionTime = gsub("未知", NA, data$constructionTime)
+data$bathRoom = gsub("未知", NA, data$bathRoom)
+data$Cid = as.factor(data$Cid)
+```
+We also find that, through inspecting some of the original URL, several data seems to be misplaced into a wrong columns such that off-the-chart values are present in these columns. For example, some rows have 2006 bathrooms. It seems more appropriate to say that the construction time for this row is 2006. Moreoever, all these rows have missing values. We infer that these bad data points probabably result from bugs in the crawler. There are only a handfule of such data points. So we drop them directly.
+```{r}
+data = data[-which(is.na(data$livingRoom)),]
+```
 
 # Mice imputed data
 ```{r}
@@ -94,11 +143,15 @@ data = data[,!colnames(data) %in% c("url","id","Cid", "totalPrice", "X")]
 
 ## V. Modeling
 
+For the predictive modeling of this dataset, we will attempt to build a model for "price", which is the total price over square meters of the property. We think this would be a good indicator for the general affordability in Beijing city as opposed to "totalPrice". We have divided the dataset into train and test set by the year: all data before 2017 will be the training set and all after 2017 will be test set. This mimics the situation where people use historical data to predict future housing price in Beijing. After all, there is no point in predicting a past transactino because we can simply look it up. Credit: [this report] (https://www.kaggle.com/jonathanbouchet/forecasting-beijing-s-housing).
+
+We also prepared two types of data for traning and testing. First is the data within which the factors are not explicitly dummy-coded. This is for our own convience when writing formula for the glm models.
 ```{r}
 data_train_nodummy <- data.frame(data %>% filter(year<2017))
 data_test_nodummy <- data.frame(data %>% filter(year>=2017))
 ```
 
+The second type of data we need to prepare is the one that explicitly dummy-encodes the factor variables. We need to use this since we will be using advanced modeling package xgboost, which can only handel numeric data. And finally we have defined 5-folds cross-validation as the evaluation methods for our modeling tasks.
 ```{r}
 for(col in names(data)) {
   if(!is.factor(data[,col])) {
@@ -127,6 +180,60 @@ train_control <- trainControl(
 )
 ```
 
+### Generalized Linear Model(glm)
+We have selected linear regression as our baseline model. A small trick that is applied here is manual feature selection according to the P values produced by the linear regression program. The step to manually select features are:
+1. Run glm models on the dataset. 
+2. Exclude the features that the glm models consider having high P value.
+3. Rerun glmnet models using the resulting features after step 2.
+Steps 1 and 2 are not shown here. Only the results for step 3 is shown. According to the P-value criteria, "living room" and "elevator" does not have significance over the price.
+```{r}
+model_glm <- caret::train(
+    price ~.-livingRoom-elevator, data_train_nodummy,
+    metric = "Rsquared",
+    trControl = train_control,
+    method = "glm",
+    preProcess = c("zv", "nzv","center","scale")
+)
+model_glm$results
+```
+We see that the linear regression models are not particular good. In terms of Rsuqared, it reaches 0.77. The glmnet model, which comes with regularization, is no more better than plain glm model. And we won't brother to show the glmnet model results here. This suggests that we have a underfitting problem resulting from a model that is too simple. We also noticed that we have have only experimented a 1st order linear model. But before we attempt to make a higher-order model, there is another problem, that is, which predictors do we choose to combine and make high order predictors? Let's make some guess for the formula:
+
+```{r}
+model_glm_highorder <- caret::train(
+    price ~renovationCondition*elevator*communityAverage*subway*floorType, 
+    data_train_nodummy,
+    metric = "Rsquared",
+    trControl = train_control,
+    method = "glm",
+    preProcess = c("zv", "nzv","center","scale")
+)
+model_glm_highorder$results
+```
+
+As it turns out, the 5th-order linear model become worse. If we go down this path, one big hyper-parameter we have to tune seems to be number of order and the combination of predictors that make high order predictors. And it seems the only way to do this is exhasitive search. We will look for two more complex models to see if there is smarter algorithms that can give us better results.
+
+### Decision Tree Models
+Previously we mentioned that a linear regression has underfitting model. We now attempt to fit the dataset using a decision tree model, with the "cp" as the hyperpameter tunning.
+```{r}
+model_rpart <- caret::train(
+    x = train_x,
+    y = train_y,
+    metric = "Rsquared",
+    tuneGrid = expand.grid(
+      cp = c(0:5/50)
+    ),
+    trControl = train_control,
+    method = "rpart",
+    preProcess = c("zv", "nzv","center","scale")
+)
+plot(model_rpart)
+```
+Small complexity parameter results in larger trees and potential overfitting, large complexity parameter in small trees and potential underfitting. As we can see from the plot of RMSE vs complexity parameter, cp=0 still gets the lowest RMSE. This suggests that the model still suffers from underfitting. We continue to look for some other model that is more complex. 
+
+### Extreme Gradiant Boost
+Next we investigate a powerful but complext models, xgboost. As we will see shortly, out-of-box xgboost on this dataset yield ~15% reduction in RMSE as compared to the decision tree model. With some tuning, we are able to yield 18% reduction in RMSE as compared to the rpart model. We have follows [this](https://www.kaggle.com/pelkoja/visual-xgboost-tuning-with-caret) tutorial in learning how to tune the xgboost model. 
+
+The tuning process takes a long time to run. We have run these steps and save all intermediate models in the file systems. The following codes just document the tuning process.
 ```{r}
 TUNE_XGB = F
 if(TUNE_XGB) {
@@ -143,7 +250,7 @@ grid_default <- expand.grid(
 xgb_base <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = grid_default,
   method = "xgbTree",
@@ -167,7 +274,7 @@ tune_grid1 <- expand.grid(
 xgb_tune1 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid1,
   method = "xgbTree",
@@ -188,7 +295,7 @@ tune_grid2 <- expand.grid(
 xgb_tune2 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid2,
   method = "xgbTree",
@@ -209,7 +316,7 @@ tune_grid3 <- expand.grid(
 xgb_tune3 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid3,
   method = "xgbTree",
@@ -230,7 +337,7 @@ tune_grid4 <- expand.grid(
 xgb_tune4 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid4,
   method = "xgbTree",
@@ -251,7 +358,7 @@ tune_grid5 <- expand.grid(
 xgb_tune5 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid5,
   method = "xgbTree",
@@ -273,7 +380,7 @@ grid_best <- expand.grid(
 xgb_best <- caret::train(
     x = train_x,
     y = train_y,
-    metric = "RMSE",
+    metric = "Rsquared",
     trControl = train_control,
     tuneGrid = grid_best,
     method = "xgbTree",
@@ -303,60 +410,53 @@ model_list = list(v1=xgb_tune1,
                   xgboost_base=xgb_base
                   )
 resamps <- resamples(model_list)
-summary(resamps, metric = "RMSE")
-dotplot(resamps, metric = "RMSE")
+summary(resamps, metric = "Rsquared")
+dotplot(resamps, metric = "Rsquared")
 print(xgb_tune5$bestTune)
 bestTune = xgb_tune5$bestTune
 ```
-
-```{r}
-model_rpart <- caret::train(
-    x = train_x,
-    y = train_y,
-    metric = "RMSE",
-    tuneGrid = expand.grid(
-      cp = c(0:3/10)
-    ),
-    trControl = train_control,
-    method = "rpart",
-    preProcess = c("zv", "nzv","center","scale")
-)
-model_glm <- caret::train(
-    price ~.-livingRoom-elevator, data_train_nodummy,
-    metric = "RMSE",
-    trControl = train_control,
-    method = "glm",
-    preProcess = c("zv", "nzv","center","scale")
-)
-```
-
-## VI. Evaluation
-```{r}
-pred<-data.frame('Prediction'= predict(xgb_base,test_x),'True' = test_y)
-ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
-       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',xgb_base$method))
-pred<-data.frame('Prediction'= predict(model_rpart,test_x),'True' = test_y)
-ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_abline(slope=1,intercept=0,colour = "blue") +
-       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model_rpart$method))
-pred<-data.frame('Prediction'= predict(model_glm,data_test_nodummy),'True' = data_test_nodummy$price)
-ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter()+ geom_abline(slope=1,intercept=0,colour = "blue") +
-       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model_glm$method))
-#grid.arrange(p1,p2,p3,ncol=1)
-```
-
-Final comparison of RMSE of three models.
+We have obtained the best hyperparamters for xgboost according to 5-folds cross validation. Final comparison of RMSE of three models based on cross-validation.
 ```{r}
 model_list = list(glm=model_glm,
                   rpart=model_rpart,
-                  xgboost=xgb_best
+                  xgboost_base=xgb_base,
+                  xgboost_best=xgb_best
                   )
 resamps <- resamples(model_list)
-summary(resamps, metric = "RMSE")
-dotplot(resamps, metric = "RMSE")
+summary(resamps, metric = "Rsquared")
+dotplot(resamps, metric = "Rsquared")
+```
 
-library(xgboost)
+## VI. Evaluation
+We now apply the models we have previously trained on a "future dataset" - the transcation data from 2017 and beyond. Recall that we have trained the models using data before 2017 and try to predict housing price after 2017. In the following, the true price vs predicted price are plotted. The blue line is the ideal prediction, where all predicted price match 100% with the true price.
+```{r}
+model = xgb_best
+pred = data.frame('Prediction'= predict(model,test_x),'True' = test_y)
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model$method))
+xgb_best_test_results = postResample(pred = pred$Prediction, obs = pred$True)
+    
+model = model_rpart
+pred = data.frame('Prediction'= predict(model,test_x),'True' = test_y)
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model$method))
+rpart_test_results = postResample(pred = pred$Prediction, obs = pred$True)
+
+model = model_glm
+pred = data.frame('Prediction'= predict(model_glm,data_test_nodummy),'True' = data_test_nodummy$price)
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model_glm$method))
+glm_test_results = postResample(pred = pred$Prediction, obs = pred$True)
+
+df_test_results = data.frame(xgb_best_test_results,rpart_test_results,glm_test_results)
+df_test_results
+```
+It is interesting to see from these plots that:
+
+Importance factors:
+```{r}
 mat = xgb.importance (feature_names = colnames(train_x),model = xgb_best$finalModel)
-xgb.plot.importance (importance_matrix = mat[1:20]) 
+xgb.plot.importance (importance_matrix = mat[1:10]) 
 ```
 
 ## VII. Deployment
