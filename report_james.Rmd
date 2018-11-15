@@ -1,7 +1,7 @@
 ---
-title: "Bank Marketing - Term Deposit Classification Model"
+title: "Beijing Housing - Core Project"
 author: "TALL Machine Learning - Zheng (James) Lai, Iman Lau, Dung Tran"
-date: "October 12, 2018"
+date: "November 15, 2018"
 output:
   html_document: default
   pdf_document: default
@@ -38,9 +38,9 @@ library(lubridate)
 library(caret)
 library(psych)
 library(reshape2)
-library(doMC)
+#library(doMC)
 library(xgboost)
-registerDoMC(4)
+#registerDoMC(4)
 set.seed(42)
 model_dir = "models"
 data_dir = "data"
@@ -80,17 +80,247 @@ Attribute    | Description
 
 ## IV. Data Exploration and Preparation
 
-### (1) Visualizations for client-related attributes
+### (1) Visualizations 
 
-### (2) Visualizations for the social/economic attributes
+Prepare data from original dataset for visualization
+```{r}
+data_initial=read.csv(paste(data_dir,"new.csv",sep="/"), header = TRUE, sep = ",")
+dataVisualize <- data_initial[, !colnames(data_initial) %in% c("id", "Cid")]
+dataVisualize$floor <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$floor)))
+dataVisualize$drawingRoom <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$drawingRoom)))
+dataVisualize$constructionTime <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$constructionTime)))
+dataVisualize$bathRoom <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$bathRoom)))
+dataVisualize$livingRoom <- as.factor(as.numeric(gsub("\\D", "", dataVisualize$livingRoom)))
+
+#construction time has 0 and 1 listed for year of construction - incorrect so change them to NA
+levels(dataVisualize$constructionTime)[levels(dataVisualize$constructionTime)=="0"] <- NA
+levels(dataVisualize$constructionTime)[levels(dataVisualize$constructionTime)=="1"] <- NA
+
+#bathroom has what appears to be years - change to NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="1990"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="1994"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="1996"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2000"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2003"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2004"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2005"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2006"] <- NA
+levels(dataVisualize$bathRoom)[levels(dataVisualize$bathRoom)=="2011"] <- NA
+
+#building type has decimal places when it should not - change to NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.048"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.125"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.25"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.333"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.375"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.429"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.5"] <- NA
+levels(dataVisualize$buildingType)[levels(dataVisualize$buildingType)=="0.667"] <- NA
+
+
+#factor elevator, fiveyearsproperty, subway and change to yes/no
+dataVisualize$elevator = factor(mapvalues(dataVisualize$elevator, from = c(0, 1), to = c("no", "yes")))
+dataVisualize$fiveYearsProperty = factor(mapvalues(dataVisualize$fiveYearsProperty, from = c(0, 1), to = c("no", "yes")))
+dataVisualize$subway = factor(mapvalues(dataVisualize$subway, from = c(0, 1), to = c("no", "yes")))
+
+#factor building type, kitchen
+dataVisualize$buildingType <- as.factor(dataVisualize$buildingType)
+dataVisualize$kitchen <- as.factor(dataVisualize$kitchen)
+dataVisualize$district <- as.factor(dataVisualize$district)
+#converting numeric to categorical
+#building type
+makeBuildingType <- function(x){
+  if(!is.na(x)){
+    if(x==1){
+      return('Tower')
+    }
+    else if (x==2){
+      return('Bungalow')
+    }
+    else if (x==3){
+      return('Mix_Plate_Tower')
+    }
+    else if (x==4){
+      return('Plate')
+    }
+    else return('wrong_coded')
+  }
+  else{return('missing')}
+}
+dataVisualize$buildingType <- sapply(dataVisualize$buildingType, makeBuildingType)
+dataVisualize <- data.frame(dataVisualize %>% filter(buildingType != 'wrong_coded' & buildingType !='missing'))
+
+#building condition
+makeRenovationCondition <- function(x){
+  if(x==1){
+    return('Other')
+  }
+  else if (x==2){
+    return('Rough')
+  }
+  else if (x==3){
+    return('Simplicity')
+  }
+  else if (x==4){
+    return('Hardcover')
+  }
+}
+dataVisualize$renovationCondition <- sapply(dataVisualize$renovationCondition, makeRenovationCondition)
+
+# Building Structure
+makeBuildingStructure <- function(x){
+  if(x==1){
+    return('Unknown')
+  }
+  else if (x==2){
+    return('Mix')
+  }
+  else if (x==3){
+    return('Brick_Wood')
+  }
+  else if (x==4){
+    return('Brick_Concrete')
+  }
+  else if (x==5){
+    return('Steel')
+  }
+  else if (x==6){
+    return('Steel_Concrete')
+  }
+}
+dataVisualize$buildingStructure <- sapply(dataVisualize$buildingStructure, makeBuildingStructure)
+
+# Adding 2 attributes Month and Year for Selling Time
+dataVisualize$tradeYear <- year(dmy(dataVisualize$tradeTime))
+dataVisualize$tradeMonth <- month(dmy(dataVisualize$tradeTime))
+df3 <- data.frame(dataVisualize %>% na.omit())
+df3$buildingType <- as.factor(df3$buildingType)
+df3$buildingStructure <- as.factor(df3$buildingStructure)
+df3$elevator <- as.factor(df3$elevator)
+df3$fiveYearsProperty <- as.factor(df3$fiveYearsProperty)
+df3$subway <- as.factor(df3$subway)
+df3$district <- as.factor(df3$district)
+df3$renovationCondition <- as.factor(df3$renovationCondition)
+df3$tradeTimeTs <- as.Date(df3$tradeTime, format = "%Y-%m-%d")
+df3$monthlyTradeTS <- as.Date(paste0(df3$tradeYear,'-',df3$tradeMonth,'-01'))
+```
+We can observe the Beijing Housing Market on total trading volume, trading value and average trading total proce over years to have a general view on this market trend.
+```{r}
+year_data <- subset(dataVisualize,!(dataVisualize$tradeYear < 2011))
+      all_group <- group_by(year_data, district, tradeYear)
+      beijing_by_volume <- dplyr::summarise(all_group, n=n())
+ggplot(aes(x = tradeYear , y = n, fill = district), data = beijing_by_volume) +
+        geom_bar(stat = 'identity', position = 'stack', width = 0.5) +
+        coord_flip() +
+        xlab('Year') +
+        ylab('Trading Volume') +
+        theme_minimal() +
+        theme(plot.title = element_text(size = 16),
+              axis.title = element_text(size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
+
+year_data <- subset(dataVisualize,!(dataVisualize$tradeYear < 2011))
+      all_group <- group_by(year_data, district, tradeYear)
+      beijing_by_value <- dplyr::summarise(all_group, value=sum(totalPrice)/1000)
+      ggplot(aes(x = tradeYear , y = value, fill = district), data = beijing_by_value) +
+        geom_bar(stat = 'identity', position = 'stack', width = 0.5) +
+        coord_flip() +
+        xlab('Year') +
+        ylab('Trading Value (1000 Yuan)') +
+        theme_minimal() +
+        theme(plot.title = element_text(size = 16),
+              axis.title = element_text(size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
+
+all_group <- group_by(dataVisualize, tradeYear)
+        beijing_by_average_price <- dplyr::summarise(all_group, average=mean(totalPrice))
+        ggplot(aes(x=tradeYear, y=average), data =beijing_by_average_price) +
+        geom_line(size=1.5) +
+            ylab('Year') +
+            xlab('Average Total Price (10k Yuan)') +
+            theme_grey() +
+            theme(plot.title = element_text(size = 16),
+                  axis.title = element_text(size = 12, face = "bold")) 
+
+```
+Look deeper into the comparison between districts by year, we can visualize how the market different over districts through years on both volume, value and average square price. Please view our application to view more options on date range and let's take a look on the best year of the market - 2016 for an example here.
+
+```{r}
+compareData <- subset(dataVisualize, dataVisualize$tradeYear == 2016)
+all_group <- group_by(compareData, district, tradeYear)
+      beijing_by_volume <- dplyr::summarise(all_group, n=n())
+      ggplot(aes(x = district , y = n, fill = n), data = beijing_by_volume) +
+        geom_bar(stat = 'identity', width = 0.5) +
+        xlab('District') +
+        ylab('Trading Volume') +
+        theme_minimal() +
+        theme(plot.title = element_text(size = 16),
+              axis.title = element_text(size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
+
+all_group <- group_by(compareData, district)
+      beijing_by_value <- dplyr::summarise(all_group, value=sum(totalPrice)/1000)
+      ggplot(aes(x = district , y = value, fill = value), data = beijing_by_value) +
+        geom_bar(stat = 'identity', width = 0.5) +
+        xlab('District') +
+        ylab('Trading Value (1000 Yuan)') +
+        theme_minimal() +
+        theme(plot.title = element_text(size = 16),
+              axis.title = element_text(size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
+      
+
+mypalette <- colorRampPalette(brewer.pal(12,'Paired'))(13)
+      mycols <- 3
+      mybox <- compareData %>% ggplot(aes_string('district','price')) + geom_boxplot(aes_string(color='district')) + 
+        scale_color_manual(name='',values=mypalette) + theme_minimal(12) + 
+        theme(axis.title =element_blank(), legend.position='None') + 
+        coord_flip()
+      
+grid.arrange(mybox, ncol=1)
+
+```
+
+We also can take a look on some typical categorical attributes to see how square price is depended on these features.
+```{r}
+makeFeatureCatEDA <- function(x){
+
+    mypalette <-'Paired'
+    mycols <- 2
+    
+    mybox <- df3 %>% ggplot(aes_string(x,'price')) + geom_boxplot(aes_string(color=x)) + 
+      scale_color_brewer(name='', palette=mypalette) + theme_minimal(12) + 
+      theme(axis.title =element_blank(), legend.position='None') + 
+      labs(title='Average Price Per Square') #+ coord_flip()
+  
+    grid.arrange(mybox, ncol=1)
+}
+makeFeatureCatEDA('buildingStructure')
+makeFeatureCatEDA('buildingType')
+makeFeatureCatEDA('renovationCondition')
+makeFeatureCatEDA('elevator')
+makeFeatureCatEDA('subway')
+makeFeatureCatEDA('fiveYearsProperty')
+ 
+```
+### (2) Data correlations
+Our imputed dataset has been cleaned and transformed all attributes into numeric or binary values, so we will investigate the correlations between features on this dataset. For a better view, please visit our application.
+```{r}
+corrplot(cor(
+      data %>% select_if(is.numeric) %>% select(-Lng, -Lat) ,use = "pairwise.complete.obs",
+      method='pearson')
+      ,method='ellipse',
+      tl.cex = 1,
+      col = viridis::viridis(50),
+      tl.col='black')
+
+```
 
 ### (3) Data outliers
 
-### (4) Data correlations
+### (4) Possible inconsistencies in data
 
-### (5) Possible inconsistencies in data
-
-### (6) Data Preprocessing
+### (5) Data Preprocessing
 First of all, we want to convert all Chinese characters in the dataset into English.
 ```{r}
 ### Loading data
