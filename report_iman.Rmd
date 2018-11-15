@@ -16,6 +16,7 @@ library(DMwR)
 library(caret)
 library(pROC)
 library(ggplot2)
+library(ggmap)
 library(ggpubr)
 library(stringr)
 library(lubridate)
@@ -49,7 +50,7 @@ model_dir = "models"
 data_dir = "data"
 
 ### Loading data
-data=read.csv(paste(data_dir,"cleaned_data.csv",sep="/"), header = TRUE, sep = ",",na.strings = c("NA", "nan","#NAME?"))
+data=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",",na.strings = c("NA", "nan","#NAME?"))
 ```
 
 ## I. Introduction
@@ -116,6 +117,8 @@ Attribute    | Description
 url          | the url of the house/transaction from where data was scraped
 id           | the ID of the transaction
 
+An important consideration for this data set is that some important information is displayed in Chinese characters. This information would have been lost if we did not have a team member whose computer could render the characters properly and could understand Chinese. 
+
 ## IV. Data Exploration and Preparation
 
 ### (1) Visualizations for client-related attributes
@@ -127,12 +130,10 @@ id           | the ID of the transaction
 There appears to be some outliers in the ladder ration:
 
 ```{r}
-
 boxplot(data$ladderRatio, las = 1, ylim=c(0,2))
-
 ```
 
-It does not make sense to have more than one ladder per unit.
+It does not make sense to have more than one ladder per unit, so anything greater than a 1:1 ratio is considered an outlier.
 
 ### (4) Data correlations
 
@@ -141,14 +142,15 @@ It does not make sense to have more than one ladder per unit.
 ### (6) Data Preprocessing
 
 The data needs a lot of cleaning done. First of all, there are some Chinese characters in the data which conveys meaning. We first replace these Chinese characters with their English meanings:
-```{r}
-### Replace Chinese charactor
+
+```{r eval = FALSE}
+### Replace Chinese characters
 data$floor = gsub("¨¦????", "high", data$floor)
 data$floor = gsub("??????", "low", data$floor)
 data$floor = gsub("?????", "mid", data$floor)
 data$floor = gsub("??o??", "bottom", data$floor)
 data$floor = gsub("¨¦????", "low", data$floor)
-data$floor = gsub("????a????£¤", "unkown", data$floor)
+data$floor = gsub("????a????£¤", "unknown", data$floor)
 data$floor = gsub("¨¦??¡é??¡¤¡¤????????????", "steel-concrete composite", data$floor)
 data$floor = gsub("??¡¤¡¤??????????????????", "mixed", data$floor)
 
@@ -168,7 +170,7 @@ apply(data,2,function(x){sum(is.na(x))/length(x)*100})
 
 We also need to split the floor data out to have height and type:
 
-```{r}
+```{r eval = FALSE}
 #split floor to have height info 
 temp <- as.data.frame(str_split_fixed(data$floor, " ", 2))
 colnames(temp) <- c("floorType", "floorLevel")
@@ -179,10 +181,8 @@ data <- data[, !"floor"]
 
 Finally, there are 32 columns which have data that has been shifted, so they are removed.
 
-```{r}
-
+```{r eval = FALSE}
 data <- data[-which(is.na(data$livingRoom)),]
-
 ```
 
 Afterwards, we can adjust some other aspects of the data such as removing more unused columns and type conversion:
@@ -265,7 +265,7 @@ hist(mice_output$constructionTime, freq=F, main='MICE Output',
 
 Everything looks fine, so we can now assign the imputed values to the data set:
 
-```{r}
+```{r eval = FALSE}
 data$DOM <- mice_output$DOM
 data$buildingType <- mice_output$buildingType
 data$ladderRatio <- mice_output$ladderRatio
@@ -275,7 +275,7 @@ data$constructionTime <- mice_output$constructionTime
 
 ## V. Modeling
 
-```{r echo=FALSE}
+```{r echo = FALSE}
 #loading in mice imputed data due to the length of time it takes to impute
 data=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",")
 
@@ -297,18 +297,6 @@ data$district=as.factor(data$district)
 
 # non informative columns; or factors that have too many levels like Cid
 data = data[,!colnames(data) %in% c("url","id","Cid")]
-
-for(col in names(data)) {
-  if(!is.factor(data[,col])) {
-    data[,col] = as.numeric(data[,col])
-    next
-  }
-  if(col=="price") next
-  f = as.formula(paste("price~",col,"-1",sep=""))
-  m = model.matrix(f,data)
-  data = data[,!colnames(data) %in% c(col)]
-  data = cbind(data,m)
-}
 ```
 
 ### (1) Clustering
@@ -326,12 +314,14 @@ for (i in seq(2,8,1)) {
 }
 ```
 
-```{r warning = FALSE}
-kproto_clusters <- list.load(paste(data_dir,"kproto_cluster.rds",sep="/"))
+```{r eval = FALSE}
 wss = c()
 for(kc in kproto_clusters) {
   wss = c(wss,kc$tot.withinss)
 }
+```
+```{r}
+wss <- readRDS(paste(data_dir,"wss.RDS",sep="/"))
 plot(seq(2,8,1), wss, type="b", xlab="Number of Clusters",ylab="Within groups sum of squares")
 ```
 
@@ -344,6 +334,7 @@ kproto_selection = kproto_clusters[[3]]
 Let's map the clusters to see what it looks like:
 
 ```{r}
+kproto_selection <- readRDS(paste(data_dir,"kproto_sel.RDS",sep="/"))
 data3 <- data
 data3$cluster_id = as.factor(kproto_selection$cluster)
 bj_map <- data.frame(data3$price, data3$Lat, data3$Lng, data3$cluster_id)
@@ -355,14 +346,14 @@ ggmap(my_map) +
              size = 0.5, alpha = 1) +
   xlab('Longitude') +
   ylab('Latitude') +
-  ggtitle('Place Holder')
+  ggtitle('Clusters on Map')
 ```
 
 There is a clear pattern to these clusters! Let's take a closer look at the attributes in these clusters:
 
 ```{r}
 kproto_results <- data3 %>%
-  dplyr::select(-price,-Lng,-Lat,-Cid,-district) %>%
+  dplyr::select(-price,-Lng,-Lat,-district) %>%
   group_by(cluster_id) %>%
   do(the_summary = summary(.))
 print(kproto_results$the_summary)
@@ -377,6 +368,8 @@ Cluster 3 is not on market for too long, but slightly longer than cluster 1 - 1 
 Cluster 4 sells very quickly - 1 day median, 10 days mean! They are also the cheapest at about 200-250. They are very slightly bigger than cluster 3 - 80-90 m^2 but roughly same number of rooms, and are definitely not bungalows. They also were built in the 2000's but are slightly newer than cluster 3. They may or may not have elevators but they do tend to not be near a subway. Slightly more than half of the units were owned for over 5 years, and there is an even distribution of floors with slightly less on the bottom.
 
 Based on locations in the map, it looks like cluster 4 is the farthest from the centre. This means it may be more suburban living, which may account for why it is the cheapest but the biggest. Cluster 3 also outside of city centre around outskirts of the downtown, while clusters 1 and 2 are the downtown properties. Cluster 2 takes the longest to sell and is the most expensive because it's in prime real estate but they are small. It is probably hard to justify buying cluster 2 type units.
+
+
 
 ```{r}
 data_train <- data.frame(data %>% filter(year<2017))
@@ -583,5 +576,11 @@ ggplot(data=pred,aes(x=Prediction,y=True)) + geom_jitter() + geom_smooth(method=
 ```
 
 ## VII. Deployment
+An R Shiny app was created for the end user to use - it is located at [this link](link here). This interactive app allows users to visualize the Beijing housing market. Users can take a look and see various trends in neighbourhoods to determine where is a good place to buy a house. They can also see the forecasted housing prices to determine if it is a good time for them to purchase or not.
+
+In order to keep this updated, regular maintenance can be expected. This includes refreshing the data set and model as the years go by. It can be updated annually in order to provide predictions for the next year. Another improvement could be adding more features into the model. Some features were not grabbed by the web scraper and they could be added in the future to see if it improves the prediction quality. 
 
 ## VIII. Conclusions
+
+From our understanding of this data set, we can see how supervised and unsupervised learning methods can be used to various degrees. In this instance, clustering was performed more for analysis to better understand the Beijing housing market. The supervised methods were used to forecast the housing prices in the future.
+
