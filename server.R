@@ -41,6 +41,15 @@ library(rlist)
 library(rgl)
 library(factoextra)
 library(NbClust)
+library(Hmisc)
+library(pROC)
+library(stringr)
+library(fastDummies)
+library(Matrix)
+library(onehot)
+library(vtreat)
+library(statsr)
+library(xgboost)
 
 
 ### data initial loading
@@ -48,15 +57,10 @@ model_dir = "models"
 data_dir = "data"
 map_dir = "map"
 
-### load map
-# bjmap <- get_map(location =c(left=115.9133, bottom=39.6966, right=116.8252, top=40.1831))
-# beijingMap <- ggmap(bjmap)
-
 
 ### loading data
 data_initial=read.csv(paste(data_dir,"new.csv",sep="/"), header = TRUE, sep = ",")
 data=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",")
-xgb_best = readRDS(paste(model_dir,"xgb.model",sep="/"))
 load(paste(model_dir,"kproto.rda",sep="/"))
 
 ### processing data
@@ -194,7 +198,7 @@ makeFeatureCatEDA <- function(x){
     mybox <- df3 %>% ggplot(aes_string(x,'price')) + geom_boxplot(aes_string(color=x)) + 
       scale_color_brewer(name='', palette=mypalette) + theme_minimal(12) + 
       theme(axis.title =element_blank(), legend.position='None') + 
-      labs(title='Average Price Per Square') + coord_flip()
+      labs(title='Average Price Per Square') #+ coord_flip()
   
     grid.arrange(mybox, ncol=1)
 }
@@ -204,6 +208,87 @@ data3 <- data
 data3$cluster_id = as.factor(kproto_selection$cluster)
 bj_map <- data.frame(data3$price, data3$Lat, data3$Lng, data3$cluster_id)
 colnames(bj_map) <- c('price', 'lat', 'lon', 'cluster_id')
+
+
+### prediction model
+# Convert to useful type
+data$tradeTime = ymd(data$tradeTime)
+data$year = year(data$tradeTime)
+data = data[, !colnames(data) %in% c("tradeTime")]
+data$drawingRoom = as.integer(data$drawingRoom)
+data$bathRoom = as.integer(data$bathRoom)
+data$buildingType = as.factor(data$buildingType)
+data$constructionTime = as.integer(data$constructionTime)
+data$renovationCondition = as.factor(data$renovationCondition)
+data$buildingStructure = as.factor(data$buildingStructure)
+data$elevator = as.factor(data$elevator)
+data$fiveYearsProperty = as.factor(data$fiveYearsProperty)
+data$subway = as.factor(data$subway)
+data$district=as.factor(data$district)
+data = data[,!colnames(data) %in% c("url","id","Cid", "totalPrice", "X")]
+
+# split test and set
+data_train_nodummy <- data.frame(data %>% filter(year<2017))
+data_test_nodummy <- data.frame(data %>% filter(year>=2017))
+
+# train and load models
+for(col in names(data)) {
+  if(!is.factor(data[,col])) {
+    data[,col] = as.numeric(data[,col])
+    next
+  }
+  if(col=="price") next
+  f = as.formula(paste("price~",col,"-1",sep=""))
+  m = model.matrix(f,data)
+  data = data[,!colnames(data) %in% c(col)]
+  data = cbind(data,m)
+}
+
+data_train <- data.frame(data %>% filter(year<2017))
+data_test <- data.frame(data %>% filter(year>=2017))
+train_x = as.matrix(data_train[,!colnames(data_train) %in% c("price")])
+train_y = data_train[,colnames(data_train) %in% c("price")]
+test_x = as.matrix(data_test[,!colnames(data_test) %in% c("price")])
+test_y = data_test[,colnames(data_test) %in% c("price")]
+folds <- createFolds(train_y, k = 5)
+train_control <- trainControl(
+  method = "cv",
+  index = folds,
+  verboseIter = F,
+  allowParallel = TRUE # FALSE for reproducible results 
+)
+
+model_rpart <- caret::train(
+  x = train_x,
+  y = train_y,
+  metric = "RMSE",
+  tuneGrid = expand.grid(
+    cp = c(0:3/10)
+  ),
+  trControl = train_control,
+  method = "rpart",
+  preProcess = c("zv", "nzv","center","scale")
+)
+model_glm <- caret::train(
+  price ~.-livingRoom-elevator, data_train_nodummy,
+  metric = "RMSE",
+  trControl = train_control,
+  method = "glm",
+  preProcess = c("zv", "nzv","center","scale")
+)
+
+xgb_base = readRDS(paste(model_dir,"xgb_base.model",sep="/"))
+xgb_tune1 = readRDS(paste(model_dir,"xgb_tune1.model",sep="/"))
+xgb_tune2 = readRDS(paste(model_dir,"xgb_tune2.model",sep="/"))
+xgb_tune3 = readRDS(paste(model_dir,"xgb_tune3.model",sep="/"))
+xgb_tune4 = readRDS(paste(model_dir,"xgb_tune4.model",sep="/"))
+xgb_tune5 = readRDS(paste(model_dir,"xgb_tune5.model",sep="/"))
+xgb_best = readRDS(paste(model_dir,"xgb.model",sep="/"))
+
+model_list = list(glm=model_glm,
+                  rpart=model_rpart,
+                  xgboost=xgb_best
+)
 
 #### Shiny app
 shinyServer(function(input, output,session) {
@@ -288,16 +373,40 @@ shinyServer(function(input, output,session) {
     
   })
   
-  ### Beijing Clustering
-  output$beijingClustering <- renderPlot({
-    sbbox <- make_bbox(lon = data3$Lng, lat = data3$Lat, f = 0.05)
-    my_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, color="color", zoom = 10)
-    ggmap(my_map) +
-      geom_point(data=bj_map, aes(x = lon, y = lat, color = cluster_id), 
-                 size = 0.5, alpha = 1) +
-      xlab('Longitude') +
-      ylab('Latitude') 
+  ### Price Analysis
+  output$priceAnalysis <- renderPlot({
+    if (input$byAttribute == "Building Structure"){
+      makeFeatureCatEDA('buildingStructure')
+    } else if (input$byAttribute == "Building Type"){
+      makeFeatureCatEDA('buildingType')
+    } else if (input$byAttribute == "Renovation Condition"){
+      makeFeatureCatEDA('renovationCondition')
+    } else if (input$byAttribute == "Has Elevator?"){
+      makeFeatureCatEDA('elevator')
+    } else if (input$byAttribute == "Near Subway?"){
+      makeFeatureCatEDA('subway')
+    } else if (input$byAttribute == "5 Years Owner Property"){
+      makeFeatureCatEDA('fiveYearsProperty')
+    }
   })
+  
+  output$priceColleration <- renderPlot({
+    corrplot(cor(
+      data %>% select_if(is.numeric) %>% select(-Lng, -Lat) ,use = "pairwise.complete.obs",
+      method='pearson')
+      ,method='ellipse',
+      tl.cex = 1,
+      col = viridis::viridis(50),
+      tl.col='black')
+  }, width = 1000, height = 900)
+  
+  output$beijingClustering <- renderImage({
+    list(
+      src = "images/clustering_map.png",
+      filetype = "image/png",
+      alt = "This is a price clustering map."
+    )
+  },deleteFile = FALSE )
   
   output$clusterSummary <- renderPrint({
     kproto_results <- subset(data3, data3$cluster_id == input$cluster) %>%
@@ -305,8 +414,7 @@ shinyServer(function(input, output,session) {
       do(the_summary = summary(.))
     print(kproto_results$the_summary)
   })
-  
-  
+
   ### Beijing Map
   output$priceChart <- renderPlot({
     if (input$byDistrict == 0){
@@ -349,7 +457,7 @@ shinyServer(function(input, output,session) {
                          weight = 4, radius = 5, color = ~ pal(district), stroke = F, fillOpacity = 0.5) 
     }else {
       pal <- colorNumeric(
-        palette = "Blues",
+        palette = "Oranges",
         domain = dataVisualize$price
       )
       m <- leaflet(map_data) %>%  
@@ -369,31 +477,49 @@ shinyServer(function(input, output,session) {
 
   })
   
-  ### Price Analysis
-  output$priceAnalysis <- renderPlot({
-    if (input$byAttribute == "Building Structure"){
-      makeFeatureCatEDA('buildingStructure')
-    } else if (input$byAttribute == "Building Type"){
-      makeFeatureCatEDA('buildingType')
-    } else if (input$byAttribute == "Renovation Condition"){
-      makeFeatureCatEDA('renovationCondition')
-    } else if (input$byAttribute == "Has Elevator?"){
-      makeFeatureCatEDA('elevator')
-    } else if (input$byAttribute == "Near Subway?"){
-      makeFeatureCatEDA('subway')
-    } else if (input$byAttribute == "5 Years Owner Property"){
-      makeFeatureCatEDA('fiveYearsProperty')
+  ### Prediction Models
+  output$modelPerformances <- renderPlot({
+    resamps <- resamples(model_list)
+    dotplot(resamps, metric = "Rsquared")
+    
+  })
+  
+  output$groundTruth <- renderPlot({
+    if(input$model == "XGB"){
+      pred<-data.frame('Prediction'= predict(xgb_base,test_x),'True' = test_y)
+      ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
+        theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',xgb_base$method))
+    }else if (input$model == "GLM"){
+      pred<-data.frame('Prediction'= predict(model_glm,data_test_nodummy),'True' = data_test_nodummy$price)
+      ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter()+ geom_abline(slope=1,intercept=0,colour = "blue") +
+        theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model_glm$method))
+    }else {
+      pred<-data.frame('Prediction'= predict(model_rpart,test_x),'True' = test_y)
+      ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_abline(slope=1,intercept=0,colour = "blue") +
+        theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model_rpart$method))
+      
     }
   })
   
-  output$priceColleration <- renderPlot({
-    corrplot(cor(
-      df3 %>% select_if(is.numeric) %>% select(-Lng, -Lat) ,use = "pairwise.complete.obs",
-      method='pearson')
-      ,method='ellipse',
-      tl.cex = 1,
-      col = viridis::viridis(50),
-      tl.col='black')
-  }, width = 700, height = 650)
+  output$modelXGB <- renderPlot({
+    model_list = list(v1=xgb_tune1,
+                      v2=xgb_tune2,
+                      v3=xgb_tune3,
+                      v4=xgb_tune4,
+                      v5=xgb_tune5,
+                      xgboost_base=xgb_base
+    )
+    resamps <- resamples(model_list)
+    dotplot(resamps, metric = "Rsquared")
+  })
+  
+  output$XGBFeatures <- DT::renderDataTable({
+    varImp(xgb_best)$importance
+  })
+  
+  output$GLMFeatures <- DT::renderDataTable({
+    varImp(model_glm)$importance
+  })
+  
   
 })

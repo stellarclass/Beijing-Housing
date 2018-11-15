@@ -52,7 +52,7 @@ body <- dashboardBody(
               ),
               box(title = "Beijing Price Analysis", width = 12, solidHeader = TRUE, status = "primary",
                   box(
-                    title = "Categorical Attributes", width = 6, height = 750, status = "warning",
+                    title = "Categorical Attributes", width = 4, height = 1000, status = "warning",
                     selectInput("byAttribute", 
                                 strong("Observe by:"), 
                                 choices = list("Building Structure","Building Type", "Renovation Condition", "Has Elevator?", "Near Subway?", "5 Years Owner Property"),
@@ -60,7 +60,7 @@ body <- dashboardBody(
                     plotOutput("priceAnalysis")
                   ),
                   box(
-                    title = "Numberic Attributes", width = 6, height = 750, status = "warning",
+                    title = "Numberic Attributes", width = 8, height = 1000, status = "warning",
                     plotOutput("priceColleration")
                   )
               )
@@ -70,7 +70,8 @@ body <- dashboardBody(
             fluidRow(
               box(title = "Beijing Housing Clustering", width = 12, solidHeader = TRUE, status = "primary",
                   box(width = 12,
-                      plotOutput("beijingClustering", height = 900)
+                      #plotOutput("beijingClustering", height = 900)
+                      imageOutput("beijingClustering", height = 900)
                   ),
                   box(title = "Clustering Information", width = 12, solidHeader = TRUE, status = "warning",
                       selectInput("cluster","Cluster:", 
@@ -104,7 +105,41 @@ body <- dashboardBody(
                     title = "Beijing Map",  background = "black",
                     leafletOutput("beijingMap", height = 900)
                   )
+              ),
+              box(title = "Prediction Beijing Housing Price", width = 12, solidHeader = TRUE, status = "warning",
+                  box(
+                    title = "Model Performances",
+                    width = 6, height = 500,
+                    plotOutput("modelPerformances")
+                    
+                  ),
+                  box(
+                    title = "Tuning XGB",
+                    width = 6, height = 500,
+                    plotOutput("modelXGB")
+                    
+                  ),
+                  box(
+                    width = 12,height = 600,
+                    title = "Prediction v.s Ground Truth", solidHeader = TRUE,status = "warning",
+                    selectInput("model","Select Model:",
+                                c("XGB", "RPart", "GLM")),
+                    plotOutput("groundTruth")
+                  ),
+                  box(
+                    title = "Interesting Important Features", width = 12, solidHeader = TRUE, status = "warning",
+                    box(
+                      title = "XGB Important Features", width = 6, status = "warning",
+                      #plotOutput("XGBFeatures")
+                      DT:: dataTableOutput("XGBFeatures")
+                    ),
+                    box(
+                      title = "GLM Important Features", width = 6, status = "warning",
+                      DT:: dataTableOutput("GLMFeatures")
+                    )
+                  )
               )
+              
             )
     )
     
