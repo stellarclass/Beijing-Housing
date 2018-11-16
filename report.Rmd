@@ -49,10 +49,6 @@ model_dir = "models"
 data_dir = "data"
 ```
 
-```{r echo=FALSE}
-register_google(key = "AIzaSyA58Q72lPu5mGHwGWSKdZU8EURqH2QzcU8")
-```
-
 ## I. Introduction
 
 The final project for the York Machine Learning course, *Machine Learning in Business Context* was to apply all that we have learned throughout the course towards one data set/project. We chose a dataset about the [Housing Prices in Beijing](https://www.kaggle.com/ruiqurm/lianjia). This report follows the structures laid out in CRISP-DM methodology.
