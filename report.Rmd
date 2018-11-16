@@ -7,7 +7,8 @@ output:
   pdf_document: default
   word_document: default
 ---
-```{r warning=FALSE,message=FALSE}
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
 library(plyr)
 library(dplyr)
 library(Hmisc)
@@ -40,11 +41,16 @@ library(psych)
 library(reshape2)
 library(doMC)
 library(xgboost)
+library(ggmap)
 registerDoMC(4)
 library(mice)
 set.seed(42)
 model_dir = "models"
 data_dir = "data"
+```
+
+```{r echo=FALSE}
+register_google(key = "AIzaSyA58Q72lPu5mGHwGWSKdZU8EURqH2QzcU8")
 ```
 
 ## I. Introduction
@@ -494,7 +500,7 @@ train_control <- trainControl(
 )
 ```
 
-### Generalized Linear Model(glm)
+#### 1. Generalized Linear Model(glm)
 We have selected linear regression as our baseline model. A small trick that is applied here is manual feature selection according to the P values produced by the linear regression program. The step to manually select features are:
 1. Run glm models on the dataset. 
 2. Exclude the features that the glm models consider having high P value.
@@ -526,7 +532,7 @@ model_glm_highorder$results
 
 As it turns out, the 5th-order linear model becomes worse. If we go down this path, one big hyper-parameter we have to tune seems to be the number of order and the combination of predictors that make high order predictors. And it seems the only way to do this is an exhaustive search. We will look for two more complex models to see if there are smarter algorithms that can give us better results.
 
-### Decision Tree Models
+#### 2. Decision Tree Models
 Previously we mentioned that a linear regression has an underfitting problem. We now attempt to fit the dataset using a decision tree model, with the "cp" as the hyperparameter tunning.
 ```{r}
 model_rpart <- caret::train(
@@ -544,7 +550,7 @@ plot(model_rpart)
 ```
 Small complexity parameter results in larger trees and potential overfitting, large complexity parameter in small trees and potential underfitting. As we can see from the plot of RMSE vs complexity parameter, cp=0 still gets the lowest RMSE. This suggests that the model still suffers from underfitting. We continue to look for some other model that is more complex. 
 
-### Extreme Gradiant Boost
+#### 3. Extreme Gradiant Boost
 Next, we investigate a powerful but complex model, xgboost. As we will see shortly, out-of-box xgboost on this dataset yield ~15% reduction in RMSE as compared to the decision tree model. With some tuning, we are able to yield 18% reduction in RMSE as compared to the rpart model. We have follows [this](https://www.kaggle.com/pelkoja/visual-xgboost-tuning-with-caret) tutorial in learning how to tune the xgboost model. 
 
 The tuning process takes a long time to run. We have run these steps and save all intermediate models in the file systems. The following codes just document the tuning process.
