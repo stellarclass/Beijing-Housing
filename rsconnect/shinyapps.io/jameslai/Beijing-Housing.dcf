@@ -1,0 +1,12 @@
+name: Beijing-Housing
+title: Beijing-Housing
+username:
+account: jameslai
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 575282
+bundleId: 1703730
+url: https://jameslai.shinyapps.io/Beijing-Housing/
+when: 1542339184.3296
+asMultiple: FALSE
+asStatic: FALSE

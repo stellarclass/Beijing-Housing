@@ -55,7 +55,7 @@ The final project for the York Machine Learning course, *Machine Learning in Bus
 
 The GitHub repository for all the source code is located at the following link: [https://github.com/stellarclass/Beijing-Housing](https://github.com/stellarclass/Beijing-Housing).
 
-Due to technical reasons on shinyapps.io, we are not able to upload the app to the website due to its limitation on memory usage. But the app can be viewed locally by running server.R in this same folder where this report resides.
+Due to some technical difficulties on shinyapps.io, we have not been able to publish the app to the website("Unhandled Exception"). But the app can be viewed locally by running server.R in this same folder where this report resides. But be aware that the app may take long tinme to render.
 
 ## II. Business Understanding
 
@@ -230,7 +230,7 @@ data$constructionTime <- mice_output$constructionTime
 ```
 
 ### (1) Visualizations 
-We first load the impuated, cleaned data for our visualization tasks. Then some additional preprocessing are also done for visualization.
+We first load the imputed, cleaned data for our visualization tasks. Then some additional preprocessing are also done for visualization.
 ```{r}
 dataVisualize=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",")
 # Adding 2 attributes Month and Year for Selling Time
@@ -286,9 +286,10 @@ all_group <- group_by(dataVisualize, tradeYear)
                   axis.title = element_text(size = 12, face = "bold")) 
 
 ```
-Look deeper into the comparison between districts by year, we can visualize how the market different over districts through years on both volume, value and average square price. Please view our application to view more options on date range and let's take a look on the best year of the market - 2016 for an example here.
 
-```{r}
+Look deeper into the comparison between districts by year, we can visualize how the market different over districts through years on both volume, value and average square price. Please view our application to view more options on date range and let's take a look at the best year of the market - 2016 for an example here.
+
+```{r warning=FALSE}
 compareData <- subset(dataVisualize, dataVisualize$tradeYear == 2016)
 all_group <- group_by(compareData, district, tradeYear)
       beijing_by_volume <- dplyr::summarise(all_group, n=n())
@@ -324,7 +325,7 @@ grid.arrange(mybox, ncol=1)
 
 ```
 
-We also can take a look on some typical categorical attributes to see how square price is depended on these features.
+We also can take a look at some typical categorical attributes to see how square price is depended on these features.
 ```{r}
 makeFeatureCatEDA <- function(x){
 
@@ -346,6 +347,7 @@ makeFeatureCatEDA('subway')
 makeFeatureCatEDA('fiveYearsProperty')
  
 ```
+
 ### (2) Data correlations
 Our imputed dataset has been cleaned and transformed all attributes into numeric or binary values, so we will investigate the correlations between features on this dataset. For a better view, please visit our application.
 ```{r}
@@ -360,7 +362,6 @@ corrplot(cor(
 ```
 
 ## V. Modeling
-
 Let's re-read the data and do some type conversion for the coming modeling tasks.
 ```{r}
 data=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",")
@@ -385,7 +386,7 @@ data$district=as.factor(data$district)
 data = data[,!colnames(data) %in% c("url","id","Cid", "totalPrice", "X")]
 ```
 
-This section of the report will be divided into two parts: first building a clusters, second building a predictive models for the house price.
+This section of the report will be divided into two parts: first building a clustering model, second building a predictive model for the house price.
 
 ### Clustering
 
@@ -422,7 +423,7 @@ if(F) kproto_selection = kproto_clusters[[3]]
 
 Let's map the clusters to see what it looks like:
 
-```{r}
+```{r warning=FALSE}
 kproto_selection <- readRDS(paste(data_dir,"kproto_sel.RDS",sep="/"))
 data3 <- data
 data3$cluster_id = as.factor(kproto_selection$cluster)
@@ -448,15 +449,15 @@ kproto_results <- data3 %>%
 print(kproto_results$the_summary)
 ```
 
-Cluster 1 is not on market for very long (15 days average but 1 day median!) meaning it is in high demand. The price is around 350-400, but it tends to be pretty small - 60-70 m^2^, although they are not bungalows and they tend to be in the middle of a building. Typically they were built in the 90's and tend to have been owned for over 5 years. While they may or may not have an elevator, they are near a subway.
+Cluster 1 is not on market for very long (15 days average but 1-day median!) meaning it is in high demand. The price is around 350-400, but it tends to be pretty small - 60-70 m^2^, although they are not bungalows and they tend to be in the middle of a building. Typically they were built in the 90's and tend to have been owned for over 5 years. While they may or may not have an elevator, they are near a subway.
 
 Cluster 2 is on the market for a while - 34 days average, 12 days median. This is likely because they are very expensive, at about 600-700! They are also quite cramped at 60-70 m^2^ but tend to be 2 bedroom units. The floor distribution is relatively even except for being on the bottom (not many are there). The buildings are generally plate type and built in the 90s. They are also near the subway, but may or may not have an elevator. They tend to be owned for over 5 years.
 
-Cluster 3 is not on market for too long, but slightly longer than cluster 1 - 1 day median, 17 days mean. They are pretty cheap at around 300-350, and are slightly bigger than cluster 1, at 70-80 m^2^ and generally 2 bedrooms. They are not bungalows and tend to be slightly newer, being built in the 2000's. This means they more often have elevators and are near the subway. They also are usually owned for over 5 years. There is a more even distribution of floors, but tend not to be on ground floor.
+Cluster 3 is not on market for too long, but slightly longer than cluster 1 - 1-day median, 17 days mean. They are pretty cheap at around 300-350, and are slightly bigger than cluster 1, at 70-80 m^2^ and generally 2 bedrooms. They are not bungalows and tend to be slightly newer, being built in the 2000's. This means they more often have elevators and are near the subway. They also are usually owned for over 5 years. There is a more even distribution of floors but tend not to be on the ground floor.
 
-Cluster 4 sells very quickly - 1 day median, 10 days mean! They are also the cheapest at about 200-250. They are very slightly bigger than cluster 3 - 80-90 m^2 but roughly same number of rooms, and are definitely not bungalows. They also were built in the 2000's but are slightly newer than cluster 3. They may or may not have elevators but they do tend to not be near a subway. Slightly more than half of the units were owned for over 5 years, and there is an even distribution of floors with slightly less on the bottom.
+Cluster 4 sells very quickly - 1-day median, 10 days mean! They are also the cheapest at about 200-250. They are very slightly bigger than cluster 3 - 80-90 m^2 but roughly the same number of rooms, and are definitely not bungalows. They also were built in the 2000's but are slightly newer than cluster 3. They may or may not have elevators but they do tend to not be near a subway. Slightly more than half of the units were owned for over 5 years, and there is an even distribution of floors with slightly less on the bottom.
 
-Based on locations in the map, it looks like cluster 4 is the farthest from the centre. This means it may be more suburban living, which may account for why it is the cheapest but the biggest. Cluster 3 also outside of city centre around outskirts of the downtown, while clusters 1 and 2 are the downtown properties. Cluster 2 takes the longest to sell and is the most expensive because it's in prime real estate but they are small. It is probably hard to justify buying cluster 2 type units.
+Based on locations in the map, it looks like cluster 4 is the farthest from the center. This means it may be more suburban living, which may account for why it is the cheapest but the biggest. Cluster 3 also outside of city center around outskirts of the downtown, while clusters 1 and 2 are the downtown properties. Cluster 2 takes the longest to sell and is the most expensive because it's in the prime real estate but they are small. It is probably hard to justify buying cluster 2 type units.
 
 ### Predictive modeling
 For the predictive modeling of this dataset, we will attempt to build a model for "price", which is the total price over square meters of the property. We think this would be a good indicator for the general affordability in Beijing city as opposed to "totalPrice". We have divided the dataset into train and test set by the year: all data before 2017 will be the training set and all after 2017 will be test set. This mimics the situation where people use historical data to predict future housing price in Beijing. After all, there is no point in predicting a past transaction because we can simply look it up. Credit: [this report] (https://www.kaggle.com/jonathanbouchet/forecasting-beijing-s-housing).
@@ -546,7 +547,7 @@ plot(model_rpart)
 ```
 Small complexity parameter results in larger trees and potential overfitting, large complexity parameter in small trees and potential underfitting. As we can see from the plot of RMSE vs complexity parameter, cp=0 still gets the lowest RMSE. This suggests that the model still suffers from underfitting. We continue to look for some other model that is more complex. 
 
-#### 3. Extreme Gradiant Boost
+#### 3. Extreme Gradient Boost
 Next, we investigate a powerful but complex model, xgboost. As we will see shortly, out-of-box xgboost on this dataset yield ~15% reduction in RMSE as compared to the decision tree model. With some tuning, we are able to yield 18% reduction in RMSE as compared to the rpart model. We have follows [this](https://www.kaggle.com/pelkoja/visual-xgboost-tuning-with-caret) tutorial in learning how to tune the xgboost model. 
 
 The tuning process takes a long time to run. We have run these steps and save all intermediate models in the file systems. The following codes just document the tuning process.
@@ -773,12 +774,13 @@ Importance factors from the xgboost models.
 mat = xgb.importance (feature_names = colnames(train_x),model = xgb_best$finalModel)
 xgb.plot.importance (importance_matrix = mat[1:10]) 
 ```
+
 The models conclude that construction time is the most significant factors in determining the price (/m2). This is both intuitive and but not so intuitive. While it is definitely reasonable to say that construction time is an important factor, it's not immediately obvious to us that it is the most significant one. There are other factors such as number bathroom, building type, does not even make into the top10, which is counter-intuitive! 
 
 ## VII. Deployment
-An R Shiny app was created for the end user to use - it is located at [this link](link here). This interactive app allows users to visualize the Beijing housing market. Users can take a look and see various trends in neighbourhoods to determine where is a good place to buy a house. They can also see the forecasted housing prices to determine if it is a good time for them to purchase or not.
+An R Shiny app was created for the end user to use, which is located in this same folder(but we have not been able to published due to large model size). This interactive app allows users to visualize the Beijing housing market. Users can take a look and see various trends in neighborhoods to determine where is a good place to buy a house. They can also see the forecasted housing prices to determine if it is a good time for them to purchase or not.
 
-In order to keep this updated, regular maintenance can be expected. This includes refreshing the data set and model as the years go by. It can be updated annually in order to provide predictions for the next year. Another improvement could be adding more features into the model. Some features were not grabbed by the web scraper and they could be added in the future to see if it improves the prediction quality. 
+In order to keep this updated, regular maintenance can be expected. This includes refreshing the data set and model as the years go by. It can be updated annually in order to provide predictions for the next year. Another improvement could be adding more features to the model. Some features were not grabbed by the web scraper and they could be added in the future to see if it improves the prediction quality. 
 
 ## VIII. Conclusions
-From our understanding of this data set, we can see how supervised and unsupervised learning methods can be used to various degrees. In this instance, clustering was performed more for analysis to better understand the Beijing housing market. The supervised methods were used to forecast the housing prices in the future, and also generate a machine perspective with regards to the importance factors in the determining the price of a property. 
+From our understanding of this data set, we can see how supervised and unsupervised learning methods can be used to various degrees. In this instance, clustering was performed more for analysis to better understand the Beijing housing market. The supervised methods were used to forecast the housing prices in the future, and also generate a machine perspective with regards to the importance factors in determining the price of a property. 
