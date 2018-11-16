@@ -1,7 +1,7 @@
 ---
-title: "Bank Marketing - Term Deposit Classification Model"
+title: "Beijing Housing - Core Project"
 author: "TALL Machine Learning - Zheng (James) Lai, Iman Lau, Dung Tran"
-date: "October 12, 2018"
+date: "November 15, 2018"
 output:
   html_document: default
   pdf_document: default
@@ -39,7 +39,9 @@ library(caret)
 library(psych)
 library(reshape2)
 library(doMC)
-registerDoMC(6)
+library(xgboost)
+registerDoMC(4)
+library(mice)
 set.seed(42)
 model_dir = "models"
 data_dir = "data"
@@ -47,28 +49,317 @@ data_dir = "data"
 
 ## I. Introduction
 
+The final project for the York Machine Learning course, *Machine Learning in Business Context* was to apply all that we have learned throughout the course towards one data set/project. We chose a dataset about the [Housing Prices in Beijing](https://www.kaggle.com/ruiqurm/lianjia). This report follows the structures laid out in CRISP-DM methodology.
+
+The GitHub repository for all the source code is located at the following link: [https://github.com/stellarclass/Beijing-Housing](https://github.com/stellarclass/Beijing-Housing).
+
+Due to technical reasons on shinyapps.io, we are not able to upload the app to the website due to its limitation on memory usage. But the app can be viewed locally by running server.R in this same folder where this report resides.
+
 ## II. Business Understanding
+
+Being able to predict the housing prices in the future has many uses. One can use this information to plan when and where to buy a house. It can also be used to plan one's investments. Being able to buy a house when prices are cheaper and sell when prices are higher is one way to make money, after all.
+
+Another aspect from this modeling tasks is to answer the question as to what constitutes as the most important factors as the housing affordability in Beijing. One member of this group used to reside in this city. It'd interesting to compare human's perception of the housing price with the results produced by an optimized model. 
 
 ## III. Data Understanding
 
+The data set was provided courtesy of [Qichen Qiu](https://www.kaggle.com/ruiqurm) who scraped the Beijing housing site, [Lianjia.com](https://lianjia.com/).
+
+The data contains various aspects of a house that prospective buyers would be interested in, some date-time attributes, and the location of the building.
+
+The following table shows the house properties:
+
 Attribute    | Description
 -------------|------------------------------------------------------------------------
+followers    | the number of people who follow the transaction (an indication of popularity)
+totalPrice   | the total price of the house
+price        | the average price per square metre
+square       | the square metres in the house
+livingRoom   | the number of bedrooms (translation error)
+drawingRoom  | the number of living rooms (translation error)
+kitchen      | the number of kitchens
+bathroom     | the number of bathrooms
+floor        | the floor on which the house is located, includes where this floor is located in the building (e.g. top, bottom, etc.)
+buildingType | the type of building (e.g. tower, bungalow, etc.)
+constructionTime | the year the building was constructed
+renovationCondition | the condition of the exterior
+buildingStructure | what the building is made of
+ladderRatio  | how many ladders are present per resident
+elevator     | if there is an elevator or not
+subway       | if a subway station is nearby or not
+communityAverage | the average price of a house in that community
+
+The following table shows the date-time attributes:
+
+Attribute    | Description
+-------------|------------------------------------------------------------------------
+tradeTime    | the date of the transaction
+DOM          | the active days on market (indicates how quickly a house sold)
+fiveYearsProperty | if the owner of the property has owned it for greater than or less than 5 years
+
+The following table shows the location attributes:
+
+Attribute    | Description
+-------------|------------------------------------------------------------------------
+Lng          | the longitude of the house
+Lat          | the latitude of the house
+Cid          | the community ID
+district     | the district where the house is located
+
+There are also two columns that identify the house listing on the website:
+
+Attribute    | Description
+-------------|------------------------------------------------------------------------
+url          | the url of the house/transaction from where data was scraped
+id           | the ID of the transaction
+
+An important consideration for this data set is that some important information is displayed in Chinese characters. This information would have been lost if we did not have a team member whose computer could render the characters properly and could understand Chinese. 
 
 ## IV. Data Exploration and Preparation
 
-### (1) Visualizations for client-related attributes
+### Data Preprocessing
+There are some cleanup to do before we can even start to do visulization. First of all, we want to convert all Chinese characters in the dataset into English.
+```{r}
+### Loading data
+data=read.csv(paste(data_dir,"original_data.csv",sep="/"), header = TRUE, sep = ",",na.strings = c("nan","#NAME?"), fileEncoding="gbk")
+data$floor = gsub("高", "high", data$floor)
+data$floor = gsub("低", "low", data$floor)
+data$floor = gsub("中", "mid", data$floor)
+data$floor = gsub("底", "bottom", data$floor)
+data$floor = gsub("顶", "low", data$floor)
+data$floor = gsub("未知", "unkown", data$floor)
+data$floor = gsub("钢混结构", "steel-concrete composite", data$floor)
+data$floor = gsub("混合结构", "mixed", data$floor)
+data$drawingRoom = gsub("中", "mid", data$drawingRoom)
+data$drawingRoom = gsub("高", "high", data$drawingRoom)
+data$drawingRoom = gsub("低", "low", data$drawingRoom)
+data$drawingRoom = gsub("底", "bottom", data$drawingRoom)
+data$drawingRoom = gsub("顶", "top", data$drawingRoom)
+data$constructionTime = gsub("未知", NA, data$constructionTime)
+data$bathRoom = gsub("未知", NA, data$bathRoom)
+data$Cid = as.factor(data$Cid)
+```
 
-### (2) Visualizations for the social/economic attributes
+We also find that, through inspecting some of the original URL, several data seems to be misplaced into wrong columns such that off-the-chart values are present in these columns. For example, some rows have 2006 bathrooms. It seems more appropriate to say that the construction time for this row is 2006. Moreover, all these rows have missing values. We infer that these bad data points probably result from bugs in the crawler. There are only a handful of such data points. So we drop them directly.
+```{r}
+data = data[-which(is.na(data$livingRoom)),]
+```
 
-### (3) Data outliers
+The floor type(top floor, mid floor, bottom floor) might be important for the price prediction. Therefore we also need to split the floor data out to have height and type. 
 
-### (4) Data correlations
+```{r eval = FALSE}
+#split floor to have height info 
+temp <- as.data.frame(str_split_fixed(data$floor, " ", 2))
+colnames(temp) <- c("floorType", "floorLevel")
+data <- cbind(data, temp)
+data$floorLevel=as.integer(data$floorLevel)
+data <- data[, !colnames(data) %in% c("floor")]
+```
 
-### (5) Possible inconsistencies in data
+There appears to be some outliers in the ladder ration:
 
-### (6) Data Preprocessing
+```{r}
+boxplot(data$ladderRatio, las = 1, ylim=c(0,2))
+```
 
-# Mice imputed data
+It does not make sense to have more than one ladder per unit, so anything greater than a 1:1 ratio is considered an outlier, and we will now convert it to NA. The renovation condition also cannot be 0, so we change that to NA as well.
+
+```{r}
+data$ladderRatio[data$ladderRatio > 1] <- NA
+data$renovationCondition[data$renovationCondition == 0] <- NA
+```
+
+Now we have some NA values to deal with.
+
+```{r}
+apply(data,2,function(x){sum(is.na(x))/length(x)*100})
+```
+
+We will use mice imputation to impute these missing values. We run the imputation on the data, excluding some less useful information in order to have it run faster. We also use the quick prediction option to help speed things up. Since the imputation takes very long to run (>=10 hours), we have taken the task offline and the following codes are merely for the purpose of documentation. Later when we start modeling, we will load the imputated data for our analysis.
+
+```{r eval = FALSE, cache = TRUE}
+DO_IMPUTE = F
+if(DO_IMPUTE) {
+  mice_mod <- mice(data[, !names(data) %in% c('Lng', 'Lat', 'Cid', 'followers', 'totalPrice', 'price')], pred = quickpred(data[, !names(data) %in% c('Lng', 'Lat', 'Cid', 'followers', 'totalPrice', 'price')], mincor=0.1, minpuc=0.3)) 
+  # Save the complete output 
+  mice_output <- complete(mice_mod)
+}
+
+```
+
+We can now plot the distributions to see how the imputation looks and to make sure nothing looks out of place:
+
+```{r}
+#read in data because of length of time to impute
+mice_output <- read.csv(paste(data_dir,"mice_output.csv",sep="/"), header = TRUE, sep = ",")
+
+# Plot distributions
+par(mfrow=c(1,2))
+hist(data$DOM, freq=F, main='Original Data', 
+     col='darkgreen', ylim=c(0,0.04))
+hist(mice_output$DOM, freq=F, main='MICE Output', 
+     col='lightgreen', ylim=c(0,0.04))
+
+hist(as.numeric(data$buildingType), freq=F, main='Original Data', 
+     col='darkgreen', ylim=c(0,0.04))
+hist(as.numeric(mice_output$buildingType), freq=F, main='MICE Output', 
+     col='lightgreen', ylim=c(0,0.04))
+
+hist(data$ladderRatio, freq=F, main='Original Data', 
+     col='darkgreen', ylim=c(0,0.04))
+hist(mice_output$ladderRatio, freq=F, main='MICE Output', 
+     col='lightgreen', ylim=c(0,0.04))
+
+data$constructionTime = as.integer(data$constructionTime)
+hist(data$constructionTime, freq=F, main='Original Data', 
+     col='darkgreen', ylim=c(0,0.04))
+hist(mice_output$constructionTime, freq=F, main='MICE Output', 
+     col='lightgreen', ylim=c(0,0.04))
+```
+
+Everything looks fine, so we can now assign the imputed values to the data set:
+
+```{r eval = FALSE}
+data$DOM <- mice_output$DOM
+data$buildingType <- mice_output$buildingType
+data$ladderRatio <- mice_output$ladderRatio
+data$communityAverage <- mice_output$communityAverage
+data$constructionTime <- mice_output$constructionTime
+```
+
+### (1) Visualizations 
+We first load the impuated, cleaned data for our visualization tasks. Then some additional preprocessing are also done for visualization.
+```{r}
+dataVisualize=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",")
+# Adding 2 attributes Month and Year for Selling Time
+dataVisualize$tradeYear <- as.integer(year(ymd(dataVisualize$tradeTime)))
+dataVisualize$tradeMonth <- as.integer(month(ymd(dataVisualize$tradeTime)))
+df3 <- data.frame(dataVisualize %>% na.omit())
+df3$buildingType <- as.factor(df3$buildingType)
+df3$buildingStructure <- as.factor(df3$buildingStructure)
+df3$elevator <- as.factor(df3$elevator)
+df3$fiveYearsProperty <- as.factor(df3$fiveYearsProperty)
+df3$subway <- as.factor(df3$subway)
+df3$district <- as.factor(df3$district)
+df3$renovationCondition <- as.factor(df3$renovationCondition)
+df3$tradeTimeTs <- as.Date(df3$tradeTime, format = "%Y-%m-%d")
+df3$monthlyTradeTS <- as.Date(paste0(df3$tradeYear,'-',df3$tradeMonth,'-01'))
+```
+We can observe the Beijing Housing Market on total trading volume, trading value and average trading total proce over years to have a general view on this market trend.
+```{r}
+year_data <- subset(dataVisualize,!(dataVisualize$tradeYear < 2011))
+      all_group <- group_by(year_data, district, tradeYear)
+      beijing_by_volume <- dplyr::summarise(all_group, n=n())
+ggplot(aes(x = tradeYear , y = n, fill = district), data = beijing_by_volume) +
+        geom_bar(stat = 'identity', position = 'stack', width = 0.5) +
+        coord_flip() +
+        xlab('Year') +
+        ylab('Trading Volume') +
+        theme_minimal() +
+        theme(plot.title = element_text(size = 16),
+              axis.title = element_text(size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
+
+year_data <- subset(dataVisualize,!(dataVisualize$tradeYear < 2011))
+      all_group <- group_by(year_data, district, tradeYear)
+      beijing_by_value <- dplyr::summarise(all_group, value=sum(totalPrice)/1000)
+      ggplot(aes(x = tradeYear , y = value, fill = district), data = beijing_by_value) +
+        geom_bar(stat = 'identity', position = 'stack', width = 0.5) +
+        coord_flip() +
+        xlab('Year') +
+        ylab('Trading Value (1000 Yuan)') +
+        theme_minimal() +
+        theme(plot.title = element_text(size = 16),
+              axis.title = element_text(size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
+
+all_group <- group_by(dataVisualize, tradeYear)
+        beijing_by_average_price <- dplyr::summarise(all_group, average=mean(totalPrice))
+        ggplot(aes(x=tradeYear, y=average), data =beijing_by_average_price) +
+        geom_line(size=1.5) +
+            ylab('Year') +
+            xlab('Average Total Price (10k Yuan)') +
+            theme_grey() +
+            theme(plot.title = element_text(size = 16),
+                  axis.title = element_text(size = 12, face = "bold")) 
+
+```
+Look deeper into the comparison between districts by year, we can visualize how the market different over districts through years on both volume, value and average square price. Please view our application to view more options on date range and let's take a look on the best year of the market - 2016 for an example here.
+
+```{r}
+compareData <- subset(dataVisualize, dataVisualize$tradeYear == 2016)
+all_group <- group_by(compareData, district, tradeYear)
+      beijing_by_volume <- dplyr::summarise(all_group, n=n())
+      ggplot(aes(x = district , y = n, fill = n), data = beijing_by_volume) +
+        geom_bar(stat = 'identity', width = 0.5) +
+        xlab('District') +
+        ylab('Trading Volume') +
+        theme_minimal() +
+        theme(plot.title = element_text(size = 16),
+              axis.title = element_text(size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
+
+all_group <- group_by(compareData, district)
+      beijing_by_value <- dplyr::summarise(all_group, value=sum(totalPrice)/1000)
+      ggplot(aes(x = district , y = value, fill = value), data = beijing_by_value) +
+        geom_bar(stat = 'identity', width = 0.5) +
+        xlab('District') +
+        ylab('Trading Value (1000 Yuan)') +
+        theme_minimal() +
+        theme(plot.title = element_text(size = 16),
+              axis.title = element_text(size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 90, hjust = 1, vjust = .4))
+      
+
+mypalette <- colorRampPalette(brewer.pal(12,'Paired'))(13)
+      mycols <- 3
+      mybox <- compareData %>% ggplot(aes_string('district','price')) + geom_boxplot(aes_string(color='district')) + 
+        scale_color_manual(name='',values=mypalette) + theme_minimal(12) + 
+        theme(axis.title =element_blank(), legend.position='None') + 
+        coord_flip()
+      
+grid.arrange(mybox, ncol=1)
+
+```
+
+We also can take a look on some typical categorical attributes to see how square price is depended on these features.
+```{r}
+makeFeatureCatEDA <- function(x){
+
+    mypalette <-'Paired'
+    mycols <- 2
+    
+    mybox <- df3 %>% ggplot(aes_string(x,'price')) + geom_boxplot(aes_string(color=x)) + 
+      scale_color_brewer(name='', palette=mypalette) + theme_minimal(12) + 
+      theme(axis.title =element_blank(), legend.position='None') + 
+      labs(title='Average Price Per Square') #+ coord_flip()
+  
+    grid.arrange(mybox, ncol=1)
+}
+makeFeatureCatEDA('buildingStructure')
+makeFeatureCatEDA('buildingType')
+makeFeatureCatEDA('renovationCondition')
+makeFeatureCatEDA('elevator')
+makeFeatureCatEDA('subway')
+makeFeatureCatEDA('fiveYearsProperty')
+ 
+```
+### (2) Data correlations
+Our imputed dataset has been cleaned and transformed all attributes into numeric or binary values, so we will investigate the correlations between features on this dataset. For a better view, please visit our application.
+```{r}
+corrplot(cor(
+      data %>% select_if(is.numeric) %>% select(-Lng, -Lat) ,use = "pairwise.complete.obs",
+      method='pearson')
+      ,method='ellipse',
+      tl.cex = 1,
+      col = viridis::viridis(50),
+      tl.col='black')
+
+```
+
+## V. Modeling
+
+Let's re-read the data and do some type conversion for the coming modeling tasks.
 ```{r}
 data=read.csv(paste(data_dir,"imputed_data.csv",sep="/"), header = TRUE, sep = ",")
 
@@ -89,8 +380,93 @@ data$subway = as.factor(data$subway)
 data$district=as.factor(data$district)
 
 # non informative columns; or factors that have too many levels like Cid
-data = data[,!colnames(data) %in% c("url","id","Cid")]
+data = data[,!colnames(data) %in% c("url","id","Cid", "totalPrice", "X")]
+```
 
+This section of the report will be divided into two parts: first building a clusters, second building a predictive models for the house price.
+
+### Clustering
+
+We use clustering to explore the data a bit further. First, we create a data frame which contains the attributes we are interested in, namely everything except location data. This is because we want to see if there's a relationship with the other attributes, not where the houses are located. Then we run kproto to produce clusters.
+
+Since the dataset is not trivial for the clustering algorithms, we have taken it offline but show the codes for documentation purpose. 
+```{r eval = FALSE}
+DO_CLUSTER = F
+if(DO_CLUSTER) {
+  data_clust <- data[, !colnames(data) %in% c("Lng", "Lat", "Cid", "district")]
+  set.seed(1234)
+  kproto_clusters = list()
+  for (i in seq(2,8,1)) {
+    kproto_clusters = list.append(kproto_clusters,kproto(data_clust,i,lambda = 1))
+  }
+  wss = c()
+  for(kc in kproto_clusters) {
+    wss = c(wss,kc$tot.withinss)
+  }
+}
+```
+
+```{r}
+wss <- readRDS(paste(data_dir,"wss.RDS",sep="/"))
+plot(seq(2,8,1), wss, type="b", xlab="Number of Clusters",ylab="Within groups sum of squares")
+```
+
+We can see that 3 or 4 clusters is a good number of clusters. 
+
+```{r warning = FALSE, error = FALSE, eval = FALSE}
+# Since we have not run the model online, don't run this line!
+if(F) kproto_selection = kproto_clusters[[3]]
+```
+
+Let's map the clusters to see what it looks like:
+
+```{r}
+kproto_selection <- readRDS(paste(data_dir,"kproto_sel.RDS",sep="/"))
+data3 <- data
+data3$cluster_id = as.factor(kproto_selection$cluster)
+bj_map <- data.frame(data3$price, data3$Lat, data3$Lng, data3$cluster_id)
+colnames(bj_map) <- c('price', 'lat', 'lon', 'cluster_id')
+sbbox <- make_bbox(lon = data3$Lng, lat = data3$Lat, f = 0.05)
+my_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, color="color", zoom = 10)
+ggmap(my_map) +
+  geom_point(data=bj_map, aes(x = lon, y = lat, color = cluster_id), 
+             size = 0.5, alpha = 1) +
+  xlab('Longitude') +
+  ylab('Latitude') +
+  ggtitle('Clusters on Map')
+```
+
+There is a clear pattern to these clusters! Let's take a closer look at the attributes in these clusters:
+
+```{r}
+kproto_results <- data3 %>%
+  dplyr::select(-price,-Lng,-Lat,-district) %>%
+  group_by(cluster_id) %>%
+  do(the_summary = summary(.))
+print(kproto_results$the_summary)
+```
+
+Cluster 1 is not on market for very long (15 days average but 1 day median!) meaning it is in high demand. The price is around 350-400, but it tends to be pretty small - 60-70 m^2^, although they are not bungalows and they tend to be in the middle of a building. Typically they were built in the 90's and tend to have been owned for over 5 years. While they may or may not have an elevator, they are near a subway.
+
+Cluster 2 is on the market for a while - 34 days average, 12 days median. This is likely because they are very expensive, at about 600-700! They are also quite cramped at 60-70 m^2^ but tend to be 2 bedroom units. The floor distribution is relatively even except for being on the bottom (not many are there). The buildings are generally plate type and built in the 90s. They are also near the subway, but may or may not have an elevator. They tend to be owned for over 5 years.
+
+Cluster 3 is not on market for too long, but slightly longer than cluster 1 - 1 day median, 17 days mean. They are pretty cheap at around 300-350, and are slightly bigger than cluster 1, at 70-80 m^2^ and generally 2 bedrooms. They are not bungalows and tend to be slightly newer, being built in the 2000's. This means they more often have elevators and are near the subway. They also are usually owned for over 5 years. There is a more even distribution of floors, but tend not to be on ground floor.
+
+Cluster 4 sells very quickly - 1 day median, 10 days mean! They are also the cheapest at about 200-250. They are very slightly bigger than cluster 3 - 80-90 m^2 but roughly same number of rooms, and are definitely not bungalows. They also were built in the 2000's but are slightly newer than cluster 3. They may or may not have elevators but they do tend to not be near a subway. Slightly more than half of the units were owned for over 5 years, and there is an even distribution of floors with slightly less on the bottom.
+
+Based on locations in the map, it looks like cluster 4 is the farthest from the centre. This means it may be more suburban living, which may account for why it is the cheapest but the biggest. Cluster 3 also outside of city centre around outskirts of the downtown, while clusters 1 and 2 are the downtown properties. Cluster 2 takes the longest to sell and is the most expensive because it's in prime real estate but they are small. It is probably hard to justify buying cluster 2 type units.
+
+### Predictive modeling
+For the predictive modeling of this dataset, we will attempt to build a model for "price", which is the total price over square meters of the property. We think this would be a good indicator for the general affordability in Beijing city as opposed to "totalPrice". We have divided the dataset into train and test set by the year: all data before 2017 will be the training set and all after 2017 will be test set. This mimics the situation where people use historical data to predict future housing price in Beijing. After all, there is no point in predicting a past transaction because we can simply look it up. Credit: [this report] (https://www.kaggle.com/jonathanbouchet/forecasting-beijing-s-housing).
+
+We also prepared two types of data for training and testing. First is the data within which the factors are not explicitly dummy-coded. This is for our own convenience when writing a formula for the glm models.
+```{r}
+data_train_nodummy <- data.frame(data %>% filter(year<2017))
+data_test_nodummy <- data.frame(data %>% filter(year>=2017))
+```
+
+The second type of data we need to prepare is the one that explicitly dummy-encodes the factor variables. We need to use this since we will be using advanced modeling package xgboost, which can only handle numeric data. And finally, we have defined 5-folds cross-validation as the evaluation methods for our modeling tasks.
+```{r}
 for(col in names(data)) {
   if(!is.factor(data[,col])) {
     data[,col] = as.numeric(data[,col])
@@ -102,15 +478,12 @@ for(col in names(data)) {
   data = data[,!colnames(data) %in% c(col)]
   data = cbind(data,m)
 }
-```
 
-## V. Modeling
-```{r}
 data_train <- data.frame(data %>% filter(year<2017))
 data_test <- data.frame(data %>% filter(year>=2017))
-train_x = as.matrix(data_train[,!colnames(data_train) %in% c("price","year")])
+train_x = as.matrix(data_train[,!colnames(data_train) %in% c("price")])
 train_y = data_train[,colnames(data_train) %in% c("price")]
-test_x = as.matrix(data_test[,!colnames(data_test) %in% c("price","year")])
+test_x = as.matrix(data_test[,!colnames(data_test) %in% c("price")])
 test_y = data_test[,colnames(data_test) %in% c("price")]
 folds <- createFolds(train_y, k = 5)
 train_control <- trainControl(
@@ -121,6 +494,60 @@ train_control <- trainControl(
 )
 ```
 
+### Generalized Linear Model(glm)
+We have selected linear regression as our baseline model. A small trick that is applied here is manual feature selection according to the P values produced by the linear regression program. The step to manually select features are:
+1. Run glm models on the dataset. 
+2. Exclude the features that the glm models consider having high P value.
+3. Rerun glmnet models using the resulting features after step 2.
+Steps 1 and 2 are not shown here. Only the results for step 3 is shown. According to the P-value criteria, "living room" and "elevator" does not have significance over the price.
+```{r}
+model_glm <- caret::train(
+    price ~.-livingRoom-elevator, data_train_nodummy,
+    metric = "Rsquared",
+    trControl = train_control,
+    method = "glm",
+    preProcess = c("zv", "nzv","center","scale")
+)
+model_glm$results
+```
+We see that the linear regression models are not particularly good. In terms of R-squared, it reaches 0.77. The glmnet model, which comes with regularization, is no better than plain glm model. And we won't bother to show the glmnet model results here. This suggests that we have an underfitting problem resulting from a model that is too simple. We also noticed that we have only experimented a 1st order linear model. But before we attempt to make a higher-order model, there is another problem, that is, which predictors do we choose to combine and make high order predictors? Let's make some guess for the formula:
+
+```{r}
+model_glm_highorder <- caret::train(
+    price ~renovationCondition*elevator*communityAverage*subway*floorType, 
+    data_train_nodummy,
+    metric = "Rsquared",
+    trControl = train_control,
+    method = "glm",
+    preProcess = c("zv", "nzv","center","scale")
+)
+model_glm_highorder$results
+```
+
+As it turns out, the 5th-order linear model becomes worse. If we go down this path, one big hyper-parameter we have to tune seems to be the number of order and the combination of predictors that make high order predictors. And it seems the only way to do this is an exhaustive search. We will look for two more complex models to see if there are smarter algorithms that can give us better results.
+
+### Decision Tree Models
+Previously we mentioned that a linear regression has an underfitting problem. We now attempt to fit the dataset using a decision tree model, with the "cp" as the hyperparameter tunning.
+```{r}
+model_rpart <- caret::train(
+    x = train_x,
+    y = train_y,
+    metric = "Rsquared",
+    tuneGrid = expand.grid(
+      cp = c(0:5/50)
+    ),
+    trControl = train_control,
+    method = "rpart",
+    preProcess = c("zv", "nzv","center","scale")
+)
+plot(model_rpart)
+```
+Small complexity parameter results in larger trees and potential overfitting, large complexity parameter in small trees and potential underfitting. As we can see from the plot of RMSE vs complexity parameter, cp=0 still gets the lowest RMSE. This suggests that the model still suffers from underfitting. We continue to look for some other model that is more complex. 
+
+### Extreme Gradiant Boost
+Next, we investigate a powerful but complex model, xgboost. As we will see shortly, out-of-box xgboost on this dataset yield ~15% reduction in RMSE as compared to the decision tree model. With some tuning, we are able to yield 18% reduction in RMSE as compared to the rpart model. We have follows [this](https://www.kaggle.com/pelkoja/visual-xgboost-tuning-with-caret) tutorial in learning how to tune the xgboost model. 
+
+The tuning process takes a long time to run. We have run these steps and save all intermediate models in the file systems. The following codes just document the tuning process.
 ```{r}
 TUNE_XGB = F
 if(TUNE_XGB) {
@@ -137,7 +564,7 @@ grid_default <- expand.grid(
 xgb_base <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = grid_default,
   method = "xgbTree",
@@ -145,13 +572,13 @@ xgb_base <- caret::train(
   preProcess = c("zv", "nzv","center","scale")
 )
 
-nrounds <- 200
+nrounds <- 500
 # note to start nrounds from 200, as smaller learning rates result in errors so
 # big with lower starting points that they'll mess the scales
 tune_grid1 <- expand.grid(
-  nrounds = seq(from = 50, to = nrounds, by = 50),
+  nrounds = seq(from = 100, to = nrounds, by = 100),
   eta = c(0.05, 0.1, 0.3),
-  max_depth = c(2, 3, 4, 5),
+  max_depth = c(2, 4, 6, 8),
   gamma = 0,
   colsample_bytree = 1,
   min_child_weight = 1,
@@ -161,7 +588,7 @@ tune_grid1 <- expand.grid(
 xgb_tune1 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid1,
   method = "xgbTree",
@@ -170,7 +597,7 @@ xgb_tune1 <- caret::train(
 )
 
 tune_grid2 <- expand.grid(
-  nrounds = seq(from = 50, to = nrounds, by = 50),
+  nrounds = seq(from = 100, to = nrounds, by = 100),
   eta = xgb_tune1$bestTune$eta,
   max_depth = xgb_tune1$bestTune$max_depth,
   gamma = 0,
@@ -182,7 +609,7 @@ tune_grid2 <- expand.grid(
 xgb_tune2 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid2,
   method = "xgbTree",
@@ -191,7 +618,7 @@ xgb_tune2 <- caret::train(
 )
 
 tune_grid3 <- expand.grid(
-  nrounds = seq(from = 50, to = nrounds, by = 50),
+  nrounds = seq(from = 100, to = nrounds, by = 100),
   eta = xgb_tune1$bestTune$eta,
   max_depth = xgb_tune1$bestTune$max_depth,
   gamma = 0,
@@ -203,7 +630,7 @@ tune_grid3 <- expand.grid(
 xgb_tune3 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid3,
   method = "xgbTree",
@@ -212,7 +639,7 @@ xgb_tune3 <- caret::train(
 )
 
 tune_grid4 <- expand.grid(
-  nrounds = seq(from = 50, to = nrounds, by = 50),
+  nrounds = seq(from = 100, to = nrounds, by = 100),
   eta = xgb_tune1$bestTune$eta,
   max_depth = xgb_tune1$bestTune$max_depth,
   gamma = c(0, 0.1, 0.5, 0.8, 1.0),
@@ -224,7 +651,7 @@ tune_grid4 <- expand.grid(
 xgb_tune4 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid4,
   method = "xgbTree",
@@ -233,7 +660,7 @@ xgb_tune4 <- caret::train(
 )
 
 tune_grid5 <- expand.grid(
-  nrounds = seq(from = 50, to = nrounds, by = 50),
+  nrounds = seq(from = 100, to = nrounds, by = 100),
   eta = seq(xgb_tune1$bestTune$eta,xgb_tune1$bestTune$eta/20,length.out = 5),
   max_depth = xgb_tune1$bestTune$max_depth,
   gamma = xgb_tune4$bestTune$gamma,
@@ -245,7 +672,7 @@ tune_grid5 <- expand.grid(
 xgb_tune5 <- caret::train(
   x = train_x,
   y = train_y,
-  metric = "RMSE",
+  metric = "Rsquared",
   trControl = train_control,
   tuneGrid = tune_grid5,
   method = "xgbTree",
@@ -253,23 +680,9 @@ xgb_tune5 <- caret::train(
   preProcess = c("zv", "nzv","center","scale")
 )
 
-model_list = list(v1=xgb_tune1,
-                  v2=xgb_tune2,
-                  v3=xgb_tune3,
-                  v4=xgb_tune4,
-                  v5=xgb_tune5,
-                  xgboost_base=xgb_base
-                  )
-resamps <- resamples(model_list)
-summary(resamps, metric = "RMSE")
-dotplot(resamps, metric = "RMSE")
-print(xgb_tune5$bestTune)
-bestTune = xgb_tune5$bestTune
 write.csv(bestTune,paste(model_dir,"bestXGB.csv",sep = "/"),row.names = F)
-}
-if(!file.exists(paste(model_dir,"xgb.model",sep="/"))) {
-  bestTune = read.csv(paste(model_dir,"bestXGB.csv",sep = "/"), header = TRUE, sep = ",")
-  grid_best <- expand.grid(
+# Retrain the best models
+grid_best <- expand.grid(
     nrounds = bestTune$nrounds,
     max_depth = bestTune$max_depth,
     eta = bestTune$eta,
@@ -278,37 +691,92 @@ if(!file.exists(paste(model_dir,"xgb.model",sep="/"))) {
     min_child_weight = bestTune$min_child_weight,
     subsample = bestTune$subsample
   )
-  xgb_best <- caret::train(
+xgb_best <- caret::train(
     x = train_x,
     y = train_y,
-    metric = "RMSE",
+    metric = "Rsquared",
     trControl = train_control,
     tuneGrid = grid_best,
     method = "xgbTree",
     verbose = TRUE,
     preProcess = c("zv", "nzv","center","scale")
   )
-  saveRDS(xgb_best, paste(model_dir,"xgb.model",sep="/"))
-} else {
-  xgb_best = readRDS(paste(model_dir,"xgb.model",sep="/"))
+saveRDS(xgb_best, paste(model_dir,"xgb.model",sep="/"))
+saveRDS(xgb_base, paste(model_dir,"xgb_base.model",sep="/"))
+saveRDS(xgb_tune1, paste(model_dir,"xgb_tune1.model",sep="/"))
+saveRDS(xgb_tune2, paste(model_dir,"xgb_tune2.model",sep="/"))
+saveRDS(xgb_tune3, paste(model_dir,"xgb_tune3.model",sep="/"))
+saveRDS(xgb_tune4, paste(model_dir,"xgb_tune4.model",sep="/"))
+saveRDS(xgb_tune5, paste(model_dir,"xgb_tune5.model",sep="/"))
 }
+xgb_best = readRDS(paste(model_dir,"xgb.model",sep="/"))
+xgb_base = readRDS(paste(model_dir,"xgb_base.model",sep="/"))
+xgb_tune1 = readRDS(paste(model_dir,"xgb_tune1.model",sep="/"))
+xgb_tune2 = readRDS(paste(model_dir,"xgb_tune2.model",sep="/"))
+xgb_tune3 = readRDS(paste(model_dir,"xgb_tune3.model",sep="/"))
+xgb_tune4 = readRDS(paste(model_dir,"xgb_tune4.model",sep="/"))
+xgb_tune5 = readRDS(paste(model_dir,"xgb_tune5.model",sep="/"))
+model_list = list(v1=xgb_tune1,
+                  v2=xgb_tune2,
+                  v3=xgb_tune3,
+                  v4=xgb_tune4,
+                  v5=xgb_tune5,
+                  xgboost_base=xgb_base
+                  )
+resamps <- resamples(model_list)
+summary(resamps, metric = "Rsquared")
+dotplot(resamps, metric = "Rsquared")
+print(xgb_tune5$bestTune)
+bestTune = xgb_tune5$bestTune
 ```
-
-model_rf$results
-  mtry  splitrule min.node.size     RMSE  Rsquared      MAE   RMSESD   RsquaredSD    MAESD
-1   53 extratrees             1 3623.599 0.9634308 1943.905 42.66113 0.0008186957 33.56537
+We have obtained the best hyperparameters for xgboost according to 5-folds cross-validation. A final comparison of Rsquared of three models based on cross-validation is as follows.
+```{r}
+model_list = list(glm=model_glm,
+                  rpart=model_rpart,
+                  xgboost_base=xgb_base,
+                  xgboost_best=xgb_best
+                  )
+resamps <- resamples(model_list)
+summary(resamps, metric = "Rsquared")
+dotplot(resamps, metric = "Rsquared")
+```
 
 ## VI. Evaluation
+We now apply the models we have previously trained on a "future dataset" - the transaction data from 2017 and beyond. Recall that we have trained the models using data before 2017 and try to predict housing price after 2017. In the following, the true price vs predicted price is plotted. The blue line is the ideal prediction, where all predicted price match 100% with the true price.
 ```{r}
-pred<-data.frame('Prediction'= predict(xgb_best,test_x),'True' = test_y)
-ggplot(data=pred,aes(x=Prediction,y=True)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
-      theme_minimal(12) + labs(title=paste0('Prediction vs. ground truth for ',xgb_best$method))
-# pred<-data.frame('Prediction'= predict(model_rf,test_x),'True' = test_y)
-# p2 = ggplot(data=pred,aes(x=Prediction,y=True)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
-#       theme_minimal(12) + labs(title=paste0('Prediction vs. ground truth for ',xgb_best$method))
-# grid.arrange(g1,g2,ncol=1)
+model = xgb_best
+pred = data.frame('Prediction'= predict(model,test_x),'True' = test_y)
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model$method))
+xgb_best_test_results = postResample(pred = pred$Prediction, obs = pred$True)
+    
+model = model_rpart
+pred = data.frame('Prediction'= predict(model,test_x),'True' = test_y)
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model$method))
+rpart_test_results = postResample(pred = pred$Prediction, obs = pred$True)
+
+model = model_glm
+pred = data.frame('Prediction'= predict(model_glm,data_test_nodummy),'True' = data_test_nodummy$price)
+ggplot(data=pred,aes(x=True,y=Prediction)) + geom_jitter() + geom_smooth(method='lm',size=.5) +
+       theme_minimal(12) + labs(title=paste0('Prediction vs. Ground truth for ',model_glm$method))
+glm_test_results = postResample(pred = pred$Prediction, obs = pred$True)
+
+df_test_results = data.frame(xgb_best_test_results,rpart_test_results,glm_test_results)
+df_test_results
 ```
 
+Importance factors from the xgboost models.
+```{r}
+mat = xgb.importance (feature_names = colnames(train_x),model = xgb_best$finalModel)
+xgb.plot.importance (importance_matrix = mat[1:10]) 
+```
+The models conclude that construction time is the most significant factors in determining the price (/m2). This is both intuitive and but not so intuitive. While it is definitely reasonable to say that construction time is an important factor, it's not immediately obvious to us that it is the most significant one. There are other factors such as number bathroom, building type, does not even make into the top10, which is counter-intuitive! 
+
 ## VII. Deployment
+An R Shiny app was created for the end user to use - it is located at [this link](link here). This interactive app allows users to visualize the Beijing housing market. Users can take a look and see various trends in neighbourhoods to determine where is a good place to buy a house. They can also see the forecasted housing prices to determine if it is a good time for them to purchase or not.
+
+In order to keep this updated, regular maintenance can be expected. This includes refreshing the data set and model as the years go by. It can be updated annually in order to provide predictions for the next year. Another improvement could be adding more features into the model. Some features were not grabbed by the web scraper and they could be added in the future to see if it improves the prediction quality. 
 
 ## VIII. Conclusions
+From our understanding of this data set, we can see how supervised and unsupervised learning methods can be used to various degrees. In this instance, clustering was performed more for analysis to better understand the Beijing housing market. The supervised methods were used to forecast the housing prices in the future, and also generate a machine perspective with regards to the importance factors in the determining the price of a property. 
